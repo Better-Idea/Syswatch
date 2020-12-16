@@ -164,6 +164,9 @@ extern void syswatch_tx_cpuinfo(syscpu_fetch_guide * guide, syswatch_stream_invo
         return;
     }
 
+    uint32_t    mask        = guide->mask;
+    guide->mask             = 0; // reset
+
     #define SYSW_PATH_CPU "/sys/devices/system/cpu"
     typedef syscpu_data_template sdt_t;
     size_t  is_exist[SYSW_CPU_BMP_SIZE];
@@ -178,7 +181,7 @@ extern void syswatch_tx_cpuinfo(syscpu_fetch_guide * guide, syswatch_stream_invo
     sdt_t   sdt             = {};
     #undef  SYSW_PATH_CPU
 
-    if (guide->mask & (SYSCPU_SOCKET_NUM | SYSCPU_CORE_NUM)) {
+    if (mask & (SYSCPU_SOCKET_NUM | SYSCPU_CORE_NUM)) {
         memset(& is_exist, 0, sizeof(is_exist));
 
         for(; sdt.core_num < SYSW_MAX_CPU_NUM; sdt.core_num++, fclose(fd)){
@@ -188,7 +191,7 @@ extern void syswatch_tx_cpuinfo(syscpu_fetch_guide * guide, syswatch_stream_invo
             if (fd == NULL){
                 break;
             }
-            if ((guide->mask & SYSCPU_SOCKET_NUM) == 0){
+            if ((mask & SYSCPU_SOCKET_NUM) == 0){
                 continue;
             }
 
@@ -204,28 +207,28 @@ extern void syswatch_tx_cpuinfo(syscpu_fetch_guide * guide, syswatch_stream_invo
         }
     }
 
-    if (guide->mask & SYSCPU_SOCKET_NUM){
+    if (mask & SYSCPU_SOCKET_NUM){
         stream(& sdt.socket_num, sizeof(sdt.socket_num));
     }
-    if (guide->mask & SYSCPU_CORE_NUM){
+    if (mask & SYSCPU_CORE_NUM){
         stream(& sdt.core_num, sizeof(sdt.core_num));
     }
-    if (guide->mask & (SYSCPU_LOAD1 | SYSCPU_LOAD5 | SYSCPU_LOAD15)){
+    if (mask & (SYSCPU_LOAD1 | SYSCPU_LOAD5 | SYSCPU_LOAD15)){
         fd                  = fopen("/proc/loadavg", "r");
         fscanf(fd, "%f %f %f", & sdt.load1, & sdt.load5, & sdt.load15);
         fclose(fd);
 
-        if (guide->mask & SYSCPU_LOAD1){
+        if (mask & SYSCPU_LOAD1){
             stream(& sdt.load1, sizeof(sdt.load1));
         }
-        if (guide->mask & SYSCPU_LOAD5){
+        if (mask & SYSCPU_LOAD5){
             stream(& sdt.load5, sizeof(sdt.load5));
         }
-        if (guide->mask & SYSCPU_LOAD15){
+        if (mask & SYSCPU_LOAD15){
             stream(& sdt.load15, sizeof(sdt.load15));
         }
     }
-    if (guide->mask & SYSCPU_ONLINEX){
+    if (mask & SYSCPU_ONLINEX){
         memset(cpu_online, 0, sizeof(cpu_online));
         sprintf(path_sub, "/online");
         fd                  = fopen(path_cpu, "r");
@@ -260,7 +263,7 @@ extern void syswatch_tx_cpuinfo(syscpu_fetch_guide * guide, syswatch_stream_invo
         sdt.i_cpu           = SYSDATA_END;
         stream(& sdt.i_cpu, sizeof(sdt.i_cpu));
     }
-    if (guide->mask & SYSCPU_USAGEX){
+    if (mask & SYSCPU_USAGEX){
         syscpu_load   cur;
         syscpu_load * old   = guide->list_last_load + 1/* skip total cpu load, offset to cpu0 */;
         fd                  = fopen("/proc/stat", "r");
@@ -362,6 +365,9 @@ extern void syswatch_tx_meminfo(sysmem_fetch_guide * guide, syswatch_stream_invo
         return;
     }
 
+    uint32_t    mask        = guide->mask;
+    guide->mask             = 0; // reset
+
     // memory unit place holder
     #define SYSMEM_UNIT_PH  " %s"
     typedef sysmem_data_template sdt_t;
@@ -394,64 +400,64 @@ extern void syswatch_tx_meminfo(sysmem_fetch_guide * guide, syswatch_stream_invo
     #define SYSMEM_SCALE    20/*1MB*/
     int64_t mem_used        = (mem_total - mem_free - mem_cache - mem_buffer);
 
-    if (guide->mask & SYSMEM_TOTAL) {
+    if (mask & SYSMEM_TOTAL) {
         sdt.total_mb        = (uint32_t)(mem_total >> SYSMEM_SCALE);
         stream(& sdt.total_mb, sizeof(sdt.total_mb));
     }
-    if (guide->mask & SYSMEM_USED) {
+    if (mask & SYSMEM_USED) {
         sdt.used_mb         = (uint32_t)(mem_used >> SYSMEM_SCALE);
         stream(& sdt.used_mb, sizeof(sdt.used_mb));
     }
-    if (guide->mask & SYSMEM_USAGE) {
+    if (mask & SYSMEM_USAGE) {
         // sdt.usage        = ;
         stream(& sdt.usage, sizeof(sdt.usage));
     }
-    if (guide->mask & SYSMEM_FREE) {
+    if (mask & SYSMEM_FREE) {
         sdt.free_mb         = (uint32_t)(mem_free >> SYSMEM_SCALE);
         stream(& sdt.free_mb, sizeof(sdt.free_mb));
     }
-    if (guide->mask & SYSMEM_SHARED) {
+    if (mask & SYSMEM_SHARED) {
         sdt.shared_mb       = (uint32_t)(mem_shared >> SYSMEM_SCALE);
         stream(& sdt.shared_mb, sizeof(sdt.shared_mb));
     }
-    if (guide->mask & SYSMEM_CACHE) {
+    if (mask & SYSMEM_CACHE) {
         sdt.cache_mb        = (uint32_t)(mem_cache >> SYSMEM_SCALE);
         stream(& sdt.cache_mb, sizeof(sdt.cache_mb));
     }
-    if (guide->mask & SYSMEM_SWAP_TOTAL) {
+    if (mask & SYSMEM_SWAP_TOTAL) {
         sdt.swap_total_mb   = (uint32_t)(swap_total >> SYSMEM_SCALE);
         stream(& sdt.swap_total_mb, sizeof(sdt.swap_total_mb));
     }
-    if (guide->mask & SYSMEM_SWAP_USED) {
+    if (mask & SYSMEM_SWAP_USED) {
         sdt.swap_free_mb    = (uint32_t)(swap_free >> SYSMEM_SCALE);
         stream(& sdt.swap_free_mb, sizeof(sdt.swap_free_mb));
     }
-    if (guide->mask & SYSMEM_SWAP_USAGE) {
+    if (mask & SYSMEM_SWAP_USAGE) {
         // sdt.swap_usage   = ;
         stream(& sdt.swap_usage, sizeof(sdt.swap_usage));
     }
-    if (guide->mask & SYSMEM_HUGEPAGES_TOTAL) {
+    if (mask & SYSMEM_HUGEPAGES_TOTAL) {
         // sdt.huage_page_total= ;
         stream(& sdt.huage_page_total, sizeof(sdt.huage_page_total));
     }
-    if (guide->mask & SYSMEM_HUGEPAGES_FREE) {
+    if (mask & SYSMEM_HUGEPAGES_FREE) {
         // sdt.huage_page_free = ;
         stream(& sdt.huage_page_free, sizeof(sdt.huage_page_free));
     }
-    if (guide->mask & SYSMEM_HUGEPAGES_RSVD) {
+    if (mask & SYSMEM_HUGEPAGES_RSVD) {
         // sdt.huage_page_rsvd = ;
         stream(& sdt.huage_page_rsvd, sizeof(sdt.huage_page_rsvd));
     }
-    if (guide->mask & SYSMEM_HUGEPAGES_SURP) {
+    if (mask & SYSMEM_HUGEPAGES_SURP) {
         // sdt.huage_page_surp = ;
         stream(& sdt.huage_page_surp, sizeof(sdt.huage_page_surp));
     }
-    if (guide->mask & SYSMEM_HUGEPAGES_USAGE) {
+    if (mask & SYSMEM_HUGEPAGES_USAGE) {
         // sdt.huage_page_usage= ;
         stream(& sdt.huage_page_usage, sizeof(sdt.huage_page_usage));
     }
 
-    if (guide->mask & SYSMEM_NUMAX){
+    if (mask & SYSMEM_NUMAX){
         ;//pass
     }
     else{
@@ -531,42 +537,64 @@ extern void syswatch_tx_meminfo(sysmem_fetch_guide * guide, syswatch_stream_invo
     #undef  SYSMEM_SCALE
 }
 
-static void syswatch_get_ioinfo_core(sysio_field * info, const sysio_stat * stat, sysio_fetch_type mask){
-    sysio_statex * last                     = & info->stat;
-    sysio_period * period                   = & info->period;
+static void syswatch_tx_ioinfo_core(
+    sysio_fetch_guide_item *    guide, 
+    const sysio_stat *          stat, 
+    syswatch_stream_invoke      stream){
 
-    if (mask & SYSIO_RRQM){
-        info->rrqm                          = 
+    typedef sysio_data_template sdt_t;
+    sdt_t          sdt                      = {};
+    sysio_statex * last                     = & guide->stat;
+    sysio_period * period                   = & guide->period;
+    uint32_t       mask;
+
+    if (guide->mask){
+        mask                                = guide->mask;
+        guide->mask                         = 0;
+        stream(& guide->mask, sizeof(guide->mask));
+    }
+    else{
+        return;
+    }
+
+    if (mask & SYSIO_RRQMX){
+        sdt.rrqm                            = 
             (float)(stat->read_merged - last->read_merged_for_rrqm) / period->s_rrqm;
         last->read_merged_for_rrqm          = stat->read_merged;
+        stream(& sdt.rrqm, sizeof(sdt.rrqm));
     }
-    if (mask & SYSIO_WRQM){
-        info->wrqm                          = 
+    if (mask & SYSIO_WRQMX){
+        sdt.wrqm                            = 
             (float)(stat->write_merged - last->write_merged_for_wrqm) / period->s_wrqm;
         last->write_merged_for_wrqm         = stat->write_merged;
+        stream(& sdt.wrqm, sizeof(sdt.wrqm));
     }
-    if (mask & SYSIO_R){
-        info->r                             = 
+    if (mask & SYSIO_RX){
+        sdt.r                               = 
             (float)(stat->read_completed - last->read_completed_for_r) / period->s_r;
         last->read_completed_for_r          = stat->read_completed;
+        stream(& sdt.r, sizeof(sdt.r));
     }
-    if (mask & SYSIO_W){
-        info->w                             = 
+    if (mask & SYSIO_WX){
+        sdt.w                               = 
             (float)(stat->write_completed - last->write_completed_for_w) / period->s_w;
         last->write_completed_for_w         = stat->write_completed;
+        stream(& sdt.w, sizeof(sdt.w));
     }
-    if (mask & SYSIO_RKB){
-        info->rkB                           = 
+    if (mask & SYSIO_RKBX){
+        sdt.rkB                             = 
             (float)(stat->read_sectors - last->read_sectors_for_rkB) * SECTOR_BYTES / 1024/*KB*/ / period->s_rkB;
         last->read_sectors_for_rkB          = stat->read_sectors;
+        stream(& sdt.rkB, sizeof(sdt.rkB));
     }
-    if (mask & SYSIO_WKB){
-        info->wkB                           = 
+    if (mask & SYSIO_WKBX){
+        sdt.wkB                             = 
             (float)(stat->write_sectors - last->write_sectors_for_wkB) * SECTOR_BYTES / 1024/*KB*/ / period->s_wkB;
         last->write_sectors_for_wkB = stat->write_sectors;
+        stream(& sdt.wkB, sizeof(sdt.wkB));
     }
-    if (mask & SYSIO_AVGRG_SZ){ // average request size
-        info->avgrg_sz                      = 
+    if (mask & SYSIO_AVGRG_SZX){ // average request size
+        sdt.avgrg_sz                        = 
             (float)(
                 stat->read_sectors + stat->write_sectors - 
                 last->read_sectors_for_avgrg_sz - last->write_sectors_for_avgrg_sz) /
@@ -578,26 +606,30 @@ static void syswatch_get_ioinfo_core(sysio_field * info, const sysio_stat * stat
         last->write_sectors_for_avgrg_sz    = stat->write_sectors;
         last->read_merged_for_avgrg_sz      = stat->read_merged;
         last->write_merged_for_avgrg_sz     = stat->write_merged;
+        stream(& sdt.avgrg_sz, sizeof(sdt.avgrg_sz));
     }
-    if (mask & SYSIO_AVGQU_SZ){
+    if (mask & SYSIO_AVGQU_SZX){
         // TODO: ==========================================================================================
+        stream(& sdt.avgqu_sz, sizeof(sdt.avgqu_sz));
     }
-    if (mask & SYSIO_SVCTM){
-        info->svctm                         =
+    if (mask & SYSIO_SVCTMX){
+        sdt.svctm                           =
             (float)(stat->io_ms - last->io_ms_for_svctm) / 
             (float)(stat->read_completed + stat->write_completed - 
                 last->read_completed_for_scvtm - last->write_completed_for_scvtm);
         last->io_ms_for_svctm               = stat->io_ms;
         last->read_completed_for_scvtm      = stat->read_completed;
         last->write_completed_for_scvtm     = stat->write_completed;
+        stream(& sdt.svctm, sizeof(sdt.svctm));
     }
-    if (mask & SYSIO_UTIL){
-        info->util                          =
+    if (mask & SYSIO_UTILX){
+        sdt.util                            =
             (float)(stat->io_ms - last->io_ms_for_util) / period->s_util;
         last->io_ms_for_util                = stat->io_ms;
+        stream(& sdt.util, sizeof(sdt.util));
     }
-    if (mask & SYSIO_AWAIT){
-        info->await                         =
+    if (mask & SYSIO_AWAITX){
+        sdt.await                           =
             (float)(stat->read_ms + stat->write_ms - last->read_ms_for_await - last->write_ms_for_await) / 
             (float)(stat->read_completed + stat->write_completed - 
                 last->read_completed_for_await - last->write_completed_for_await);
@@ -605,10 +637,18 @@ static void syswatch_get_ioinfo_core(sysio_field * info, const sysio_stat * stat
         last->write_ms_for_await            = stat->write_ms;
         last->read_completed_for_await      = stat->read_completed;
         last->write_completed_for_await     = stat->write_completed;
+        stream(& sdt.await, sizeof(sdt.await));
     }
 }
 
-extern void syswatch_get_ioinfo(sysio_data * info/*TODO: , sysio_fetch_type mask*/){
+extern void syswatch_get_ioinfo(sysio_fetch_guide * guide, syswatch_stream_invoke stream){
+    if (guide->needed){
+        guide->needed       = false;
+    }
+    else{
+        return;
+    }
+
     #define SYSIO_PATH_DEV  "/sys/class/block/"
     char    path_dev[128]   = SYSIO_PATH_DEV;
     char  * path_sub        = path_dev + sizeof(SYSIO_PATH_DEV) - 1/*ignore '\0'*/;
@@ -619,9 +659,9 @@ extern void syswatch_get_ioinfo(sysio_data * info/*TODO: , sysio_fetch_type mask
     int32_t i_stat;
     DIR   * dev             = opendir(SYSIO_PATH_DEV);
     FILE  * fd;
-    sysio_stat      stat;
-    sysio_field   * block;
+    sysio_stat      stat    = {};
     int64_t       * io_stat = (int64_t *) & stat;
+    sysio_fgi     * sfgi;
     struct dirent * sub;
 
     if (dev == NULL){
@@ -634,8 +674,14 @@ extern void syswatch_get_ioinfo(sysio_data * info/*TODO: , sysio_fetch_type mask
         // ERR
     }
 
-    while(NULL != (sub = readdir(dev))){
-        block               = & info->disk[i]; // TODO: index
+    for(; NULL != (sub = readdir(dev)); i++){
+        if (bitop_bmp_get(guide->mask_bmp_disk, i) == false){
+            continue;
+        }
+        else{
+            bitop_bmp_reset(guide->mask_bmp_disk, i);
+        }
+
         sprintf(path_sub, "%s/dev", sub->d_name);
         fd                  = fopen(path_dev, "r");
 
@@ -646,18 +692,20 @@ extern void syswatch_get_ioinfo(sysio_data * info/*TODO: , sysio_fetch_type mask
 
         fscanf(fd, "%d:%d", & i_master, & i_slaver);
         fclose(fd);
+        // TODO: make id
 
         sprintf(path_sub, "%s/stat", sub->d_name);
         fd                  = fopen(path_dev, "r");
-        block->id           = (i_master << 16) | i_slaver;
-        i_stat              = (0);
-        io_stat             = (int64_t *)& block->stat;
 
         if (fd == NULL){
             // ERR
         }
 
-        while(i_stat < sizeof(sysio_stat) / sizeof(int64_t)){
+        sfgi                = & guide->disk[i];
+        i_stat              = (0);
+        io_stat             = (int64_t *)& stat;
+
+        while(i_stat < sizeof(stat) / sizeof(int64_t)){
             // ERR
             if (fscanf(fd, " %lld", & io_stat[i_stat]) <= 0){
                 break;
@@ -667,10 +715,7 @@ extern void syswatch_get_ioinfo(sysio_data * info/*TODO: , sysio_fetch_type mask
         }
 
         fclose(fd);
-        syswatch_get_ioinfo_core(block, & stat, // TODO:mask
-            SYSIO_RRQM | SYSIO_WRQM | SYSIO_R | SYSIO_W | SYSIO_RKB | SYSIO_WKB | 
-            SYSIO_AVGRG_SZ | SYSIO_AVGQU_SZ | SYSIO_SVCTM | SYSIO_UTIL | SYSIO_AWAIT
-        );
+        syswatch_tx_ioinfo_core(sfgi, & stat, stream);
     }
     closedir(dev);
 
