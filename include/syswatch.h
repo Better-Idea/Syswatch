@@ -191,7 +191,6 @@ typedef struct _sysio_stat{
     int64_t             io_ms;
 } sysio_stat;
 
-
 typedef struct _sysio_statex{
     // there use redundancy field to keep context 
     // for fit different sampling period of 'sysio_field'
@@ -231,11 +230,20 @@ typedef struct _sysio_period{
     float               s_await;
 } sysio_period;
 
-typedef struct _sysio_field{
-    int32_t             id;                 // device major_id << 16 | minor_id
+typedef struct _sysio_fetch_guide_item{
+    // sysio_fetch_t
+    uint32_t            mask;
+    sysio_statex        stat;
+    sysio_period        period;
+} sysio_fetch_guide_item, sysio_fgi;
 
-    // keep static, syswatch.c ref it by sizeof(name)
-    char                name[48];           // name of disk
+typedef struct _sysio_fetch_guide{
+    sysio_fgi           disk[SYSW_MAX_DISK_NUM];
+    size_t              mask_bmp_disk[SYSW_DISK_BMP_SIZE];
+    bool                needed;
+} sysio_fetch_guide;
+
+typedef struct _sysio_data_template{
     float               rrqm;               // read request with merge per second
     float               wrqm;               // write request with merge per second
     float               r;                  // the total number of reads completed successfully
@@ -247,14 +255,7 @@ typedef struct _sysio_field{
     float               svctm;              // the average time(ms) spent doing I/O
     float               util;               // the average I/O usage
     float               await;              // the average I/O latency(ms)
-    sysio_statex        stat;               // last io state
-    sysio_period        period;             // sampling period of io state
-} sysio_field;
-
-typedef struct _sysio_data{
-    size_t              disk_num;
-    sysio_field         disk[SYSW_MAX_DISK_NUM];
-} sysio_data;
+} sysio_data_template;
 
 typedef enum _sysnet_fetch_type{
     SYSNET_DUPLEX               = 0x00001,
@@ -319,9 +320,9 @@ typedef struct _sys_scb{
 } sys_scb;
 
 extern void syswatch_init();
-extern void syswatch_tx_cpuinfo(syscpu_fetch_guide * guide, syswatch_stream_invoke stream);
-extern void syswatch_tx_meminfo(sysmem_fetch_guide * guide, syswatch_stream_invoke stream);
-extern void syswatch_get_ioinfo(sysio_data * info/*TODO: , sysio_fetch_type mask*/);
+extern void syswatch_tx_cpuinfo (syscpu_fetch_guide * guide, syswatch_stream_invoke stream);
+extern void syswatch_tx_meminfo (sysmem_fetch_guide * guide, syswatch_stream_invoke stream);
+extern void syswatch_get_ioinfo (sysio_fetch_guide  * guide, syswatch_stream_invoke stream);
 extern void syswatch_get_netinfo(sysnet_data * info/*TODO: , sysnet_fetch_type mask*/);
 
 // end extern "C" 
