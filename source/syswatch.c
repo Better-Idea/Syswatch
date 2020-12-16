@@ -20,6 +20,8 @@
 // extern "C"
 #include"cbegin.h"
 
+#define SYSDATA_END         -1
+
 extern sys_scb      list_sbc[];
 extern sys_scb *    list_sbc_ptr[];
 extern const size_t list_sbc_num;
@@ -154,57 +156,77 @@ static syscpu_load syswatch_get_cpu_load(FILE * fd, int32_t * cpuid){
     return load;
 }
 
-extern void syswatch_get_cpuinfo(syscpu_data * info, syscpu_fetch_type mask){
+extern void syswatch_tx_cpuinfo(syscpu_fetch_guide * guide, syswatch_stream_invoke stream){
+    if (guide->mask){
+        stream(& guide->mask, sizeof(guide->mask));
+    }
+    else{
+        return;
+    }
+
     #define SYSW_PATH_CPU "/sys/devices/system/cpu"
+    typedef syscpu_data_template sdt_t;
     size_t  is_exist[SYSW_CPU_BMP_SIZE];
+    size_t  cpu_online[SYSW_CPU_BMP_SIZE];
     size_t  prefix_length   = sizeof(SYSW_PATH_CPU) - 1 /*ignore '\0'*/;
     char    path_cpu[128]   = SYSW_PATH_CPU;
     char *  path_sub        = path_cpu + prefix_length;
-    int32_t cpu_num         = 0;
     int32_t phy_id          = 0;
-    int32_t socket_num      = 0;
     int32_t left_range      = 0;
     int32_t right_range     = 0;
     FILE *  fd              = NULL;
+    sdt_t   sdt             = {};
     #undef  SYSW_PATH_CPU
 
-    memset(& is_exist, 0, sizeof(is_exist));
+    if (guide->mask & (SYSCPU_SOCKET_NUM | SYSCPU_CORE_NUM)) {
+        memset(& is_exist, 0, sizeof(is_exist));
 
-    if (mask & (SYSCPU_SOCKET_NUM | SYSCPU_CORE_NUM)) {
-        for(; cpu_num < SYSW_MAX_CPU_NUM; cpu_num++, fclose(fd)){
-            sprintf(path_sub, "/cpu%d/topology/physical_package_id", cpu_num);
+        for(; sdt.core_num < SYSW_MAX_CPU_NUM; sdt.core_num++, fclose(fd)){
+            sprintf(path_sub, "/cpu%d/topology/physical_package_id", sdt.core_num);
             fd              = fopen(path_cpu, "r");
 
             if (fd == NULL){
                 break;
             }
-            if ((mask & SYSCPU_SOCKET_NUM) == 0){
+            if ((guide->mask & SYSCPU_SOCKET_NUM) == 0){
                 continue;
             }
 
             fscanf(fd, "%d", & phy_id);
 
-            // if the 'phy_id' is unique
-            if (bitop_bmp_get(is_exist, phy_id) == false){
-                bitop_bmp_set(is_exist, phy_id);
-                socket_num += 1;
+            if (bitop_bmp_get(is_exist, phy_id)){
+                continue;
             }
+
+            // if the 'phy_id' is unique
+            bitop_bmp_set(is_exist, phy_id);
+            sdt.socket_num += 1;
         }
     }
 
-    if (mask & SYSCPU_SOCKET_NUM){
-        info->socket_num    = socket_num;
+    if (guide->mask & SYSCPU_SOCKET_NUM){
+        stream(& sdt.socket_num, sizeof(sdt.socket_num));
     }
-    if (mask & SYSCPU_CORE_NUM){
-        info->core_num      = cpu_num;
+    if (guide->mask & SYSCPU_CORE_NUM){
+        stream(& sdt.core_num, sizeof(sdt.core_num));
     }
-    if (mask & SYSCPU_LOAD){
+    if (guide->mask & (SYSCPU_LOAD1 | SYSCPU_LOAD5 | SYSCPU_LOAD15)){
         fd                  = fopen("/proc/loadavg", "r");
-        fscanf(fd, "%f %f %f", & info->load1, & info->load5, & info->load15);
+        fscanf(fd, "%f %f %f", & sdt.load1, & sdt.load5, & sdt.load15);
         fclose(fd);
+
+        if (guide->mask & SYSCPU_LOAD1){
+            stream(& sdt.load1, sizeof(sdt.load1));
+        }
+        if (guide->mask & SYSCPU_LOAD5){
+            stream(& sdt.load5, sizeof(sdt.load5));
+        }
+        if (guide->mask & SYSCPU_LOAD15){
+            stream(& sdt.load15, sizeof(sdt.load15));
+        }
     }
-    if (mask & SYSCPU_ONLINE){
-        memset(info->list_cpu_online_bmp, 0, sizeof(info->list_cpu_online_bmp));
+    if (guide->mask & SYSCPU_ONLINEX){
+        memset(cpu_online, 0, sizeof(cpu_online));
         sprintf(path_sub, "/online");
         fd                  = fopen(path_cpu, "r");
 
@@ -214,42 +236,56 @@ extern void syswatch_get_cpuinfo(syscpu_data * info, syscpu_fetch_type mask){
                 // ERR:TODO
             }
             if (fscanf(fd, "-%d", & right_range) == 1) while(left_range <= right_range){
-                bitop_bmp_set(info->list_cpu_online_bmp, left_range/*index*/);
+                bitop_bmp_set(cpu_online, left_range/*index*/);
                 left_range += 1;
             }
             else if (fscanf(fd, ",%d", & right_range) == 1){
-                bitop_bmp_set(info->list_cpu_online_bmp, left_range/*index*/);
-                bitop_bmp_set(info->list_cpu_online_bmp, right_range/*index*/);
+                bitop_bmp_set(cpu_online, left_range/*index*/);
+                bitop_bmp_set(cpu_online, right_range/*index*/);
             }
             if (fgetc(fd) != ','){
                 fclose(fd);
                 break;
             }
         }
+
+        for(sdt.i_cpu = 0; sdt.i_cpu < sizeof(guide->mask_bmp_cpu_online) * 8; sdt.i_cpu++){
+            if (bitop_bmp_get(guide->mask_bmp_cpu_online, sdt.i_cpu)){
+                bitop_bmp_get(cpu_online, sdt.i_cpu);
+                stream(& sdt.i_cpu, sizeof(sdt.i_cpu));
+                stream(& sdt.onlinex, sizeof(sdt.onlinex));
+            }
+        }
+
+        sdt.i_cpu           = SYSDATA_END;
+        stream(& sdt.i_cpu, sizeof(sdt.i_cpu));
     }
-    if (mask & SYSCPU_USAGE){
+    if (guide->mask & SYSCPU_USAGEX){
         syscpu_load   cur;
-        int32_t       i     = I_CPU_HEADER;
-        float         usage = 0;
-        float       * list_usage
-                            = info->list_cpu_usage + 1;
-        syscpu_load * old   = info->list_last_load + 1/* skip total cpu load, offset to cpu0 */;
+        syscpu_load * old   = guide->list_last_load + 1/* skip total cpu load, offset to cpu0 */;
         fd                  = fopen("/proc/stat", "r");
+        sdt.i_cpu           = I_CPU_HEADER;
 
         while(true){
-            cur             = syswatch_get_cpu_load(fd, & i);
+            cur             = syswatch_get_cpu_load(fd, & sdt.i_cpu);
 
             if (cur.total_time == -1){
                 break;
             }
+            if (bitop_bmp_get(guide->mask_bmp_cpu_usage, sdt.i_cpu) == false){
+                continue;
+            }
 
             // be sure use the 'i' as the index
             // becase the line of 'cpu*' will hidden when the corresponding cpu was offline
-            usage           = syswatch_get_cpu_usage(cur, old[i]);
-            old[i]          = cur;
-            list_usage[i]   = usage;
+            sdt.usagex      = syswatch_get_cpu_usage(cur, old[sdt.i_cpu]);
+            old[sdt.i_cpu]  = cur;
+            stream(& sdt.i_cpu, sizeof(sdt.i_cpu));
+            stream(& sdt.usagex, sizeof(sdt.usagex));
         }
 
+        sdt.i_cpu           = SYSDATA_END;
+        stream(& sdt.i_cpu, sizeof(sdt.i_cpu));
         fclose(fd);
     }
 }
@@ -318,10 +354,18 @@ static void syswatch_get_meminfo_core(
     }
 }
 
-extern void syswatch_get_meminfo(sysmem_data * info/*TODO: , sysmem_fetch_type mask*/){
+extern void syswatch_get_meminfo(sysmem_fetch_guide * guide, syswatch_stream_invoke stream){
+    if (guide->mask){
+        stream(& guide->mask, sizeof(guide->mask));
+    }
+    else{
+        return;
+    }
+
     // memory unit place holder
     #define SYSMEM_UNIT_PH  " %s"
-
+    typedef sysmem_data_template sdt_t;
+    sdt_t   sdt             = {};
     int64_t mem_total       = -1;
     int64_t mem_free        = -1;
     int64_t mem_shared      = -1;
@@ -342,31 +386,79 @@ extern void syswatch_get_meminfo(sysmem_data * info/*TODO: , sysmem_fetch_type m
     size_t  token_length    = sizeof(token) / sizeof(token[0]);
     FILE *  fd              = NULL;
 
+    // CHECK:TODO
     fd                      = fopen("/proc/meminfo", "r");
     syswatch_get_meminfo_core(fd, token, token_length, NULL);
     fclose(fd);
-    // CHECK:TODO
 
     #define SYSMEM_SCALE    20/*1MB*/
-
     int64_t mem_used        = (mem_total - mem_free - mem_cache - mem_buffer);
-    info->total_mb          = (int32_t)(mem_total   >> SYSMEM_SCALE);
-    info->used_mb           = (int32_t)(mem_used    >> SYSMEM_SCALE);
-    // info->usage             = ;
-    info->free_mb           = (int32_t)(mem_free    >> SYSMEM_SCALE);
-    info->shared_mb         = (int32_t)(mem_shared  >> SYSMEM_SCALE);
-    info->cache_mb          = (int32_t)(mem_cache   >> SYSMEM_SCALE);
-    info->swap_total_mb     = (int32_t)(swap_total  >> SYSMEM_SCALE);
-    info->swap_free_mb      = (int32_t)(swap_free   >> SYSMEM_SCALE);
-    // info->swap_usage        = ;
-    // info->huage_page_total  = ;
-    // info->huage_page_free   = ;
-    // info->huage_page_rsvd   = ;
-    // info->huage_page_surp   = ;
-    // info->huage_page_usage  = ;
+
+    if (guide->mask & SYSMEM_TOTAL) {
+        sdt.total_mb        = (uint32_t)(mem_total >> SYSMEM_SCALE);
+        stream(& sdt.total_mb, sizeof(sdt.total_mb));
+    }
+    if (guide->mask & SYSMEM_USED) {
+        sdt.used_mb         = (uint32_t)(mem_used >> SYSMEM_SCALE);
+        stream(& sdt.used_mb, sizeof(sdt.used_mb));
+    }
+    if (guide->mask & SYSMEM_USAGE) {
+        // sdt.usage        = ;
+        stream(& sdt.usage, sizeof(sdt.usage));
+    }
+    if (guide->mask & SYSMEM_FREE) {
+        sdt.free_mb         = (uint32_t)(mem_free >> SYSMEM_SCALE);
+        stream(& sdt.free_mb, sizeof(sdt.free_mb));
+    }
+    if (guide->mask & SYSMEM_SHARED) {
+        sdt.shared_mb       = (uint32_t)(mem_shared >> SYSMEM_SCALE);
+        stream(& sdt.shared_mb, sizeof(sdt.shared_mb));
+    }
+    if (guide->mask & SYSMEM_CACHE) {
+        sdt.cache_mb        = (uint32_t)(mem_cache >> SYSMEM_SCALE);
+        stream(& sdt.cache_mb, sizeof(sdt.cache_mb));
+    }
+    if (guide->mask & SYSMEM_SWAP_TOTAL) {
+        sdt.swap_total_mb   = (uint32_t)(swap_total >> SYSMEM_SCALE);
+        stream(& sdt.swap_total_mb, sizeof(sdt.swap_total_mb));
+    }
+    if (guide->mask & SYSMEM_SWAP_USED) {
+        sdt.swap_free_mb    = (uint32_t)(swap_free >> SYSMEM_SCALE);
+        stream(& sdt.swap_free_mb, sizeof(sdt.swap_free_mb));
+    }
+    if (guide->mask & SYSMEM_SWAP_USAGE) {
+        // sdt.swap_usage   = ;
+        stream(& sdt.swap_usage, sizeof(sdt.swap_usage));
+    }
+    if (guide->mask & SYSMEM_HUGEPAGES_TOTAL) {
+        // sdt.huage_page_total= ;
+        stream(& sdt.huage_page_total, sizeof(sdt.huage_page_total));
+    }
+    if (guide->mask & SYSMEM_HUGEPAGES_FREE) {
+        // sdt.huage_page_free = ;
+        stream(& sdt.huage_page_free, sizeof(sdt.huage_page_free));
+    }
+    if (guide->mask & SYSMEM_HUGEPAGES_RSVD) {
+        // sdt.huage_page_rsvd = ;
+        stream(& sdt.huage_page_rsvd, sizeof(sdt.huage_page_rsvd));
+    }
+    if (guide->mask & SYSMEM_HUGEPAGES_SURP) {
+        // sdt.huage_page_surp = ;
+        stream(& sdt.huage_page_surp, sizeof(sdt.huage_page_surp));
+    }
+    if (guide->mask & SYSMEM_HUGEPAGES_USAGE) {
+        // sdt.huage_page_usage= ;
+        stream(& sdt.huage_page_usage, sizeof(sdt.huage_page_usage));
+    }
+
+    if (guide->mask & SYSMEM_NUMAX){
+        ;//pass
+    }
+    else{
+        return;
+    }
 
     #define SYSMEM_PATH_NODE "/sys/devices/system/node/node"
-
     char    path_node[64]   = SYSMEM_PATH_NODE;
     char *  path_sub        = path_node + sizeof(SYSMEM_PATH_NODE) - 1/*ignore '\0'*/;
     int32_t i_node          = 0;
@@ -379,7 +471,7 @@ extern void syswatch_get_meminfo(sysmem_data * info/*TODO: , sysmem_fetch_type m
     };
     token_length            = sizeof(token_numa) / sizeof(token_numa[0]);
 
-    while(true){
+    for(;; i_node += 1){
         sprintf(path_sub, "%d/meminfo", i_node);
         fd                  = fopen(path_node, "r");
 
@@ -394,14 +486,40 @@ extern void syswatch_get_meminfo(sysmem_data * info/*TODO: , sysmem_fetch_type m
             // ERR
         }
 
-        sysnuma_data * numa = & info->list_numa[node_id];
-        // numa->total         = ;
-        // numa->used          = ;
-        // numa->usage         = ;
-        // numa->free          = ;
+        bool need0          = bitop_bmp_get(guide->mask_bmp_numa_total, node_id);
+        bool need1          = bitop_bmp_get(guide->mask_bmp_numa_used , node_id);
+        bool need2          = bitop_bmp_get(guide->mask_bmp_numa_usage, node_id);
+        bool need3          = bitop_bmp_get(guide->mask_bmp_numa_free , node_id);
+        bool needx          = need0 || need1 || need2 || need3;
 
-        i_node             += 1;
+        if (needx == false){
+            continue;
+        }
+
+        sdt.i_numa          = node_id;
+        stream(& sdt.i_numa, sizeof(sdt.i_numa));
+        stream(& sdt.mask_numa, sizeof(sdt.mask_numa));
+
+        if (need0){
+            sdt.numa_total  = mem_total >> SYSMEM_SCALE;
+            stream(& sdt.numa_total, sizeof(sdt.numa_total));
+        }
+        if (need1){
+            sdt.numa_used   = mem_used >> SYSMEM_SCALE;
+            stream(& sdt.numa_used, sizeof(sdt.numa_used));
+        }
+        if (need2){
+            sdt.numa_usage  = 1.0f * mem_used / mem_total;
+            stream(& sdt.numa_usage, sizeof(sdt.numa_usage));
+        }
+        if (need3){
+            sdt.numa_free   = mem_free >> SYSMEM_SCALE;
+            stream(& sdt.numa_free, sizeof(sdt.numa_free));
+        }
     }
+
+    sdt.i_numa              = SYSDATA_END;
+    stream(& sdt.i_numa, sizeof(sdt.i_numa));
 
     #undef  SYSMEM_UNIT_PH
     #undef  SYSMEM_PATH_NODE
