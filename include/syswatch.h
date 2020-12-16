@@ -6,79 +6,175 @@
 // extern "C"
 #include"cbegin.h"
 
+typedef void (* syswatch_stream_invoke)(void * data, size_t bytes);
+
 // data group
-typedef enum _sysdata_type{
+typedef enum _sysdata_t{
     I_SYSCPU,
     I_SYSMEM,
-} sysdata_type;
+    I_SYSMAX,
+} sysdata_t;
 
-typedef enum _syscpu_fetch_type{
-    SYSCPU_SOCKET_NUM   = 0x01,
-    SYSCPU_CORE_NUM     = 0x02,
-    SYSCPU_LOAD         = 0x04,
-    SYSCPU_ONLINE       = 0x08,
-    SYSCPU_USAGE        = 0x10,
-} syscpu_fetch_type;
+enum _syscpu_fetch_it{
+    I_SYSCPU_SOCKET_NUM,
+    I_SYSCPU_CORE_NUM,
+    I_SYSCPU_LOAD1,
+    I_SYSCPU_LOAD5,
+    I_SYSCPU_LOAD15,
+    I_SYSCPU_ONLINEX,
+    I_SYSCPU_USAGEX,
+};
+
+typedef enum _syscpu_fetch_t{
+    SYSCPU_SOCKET_NUM   = 1 << I_SYSCPU_SOCKET_NUM,
+    SYSCPU_CORE_NUM     = 1 << I_SYSCPU_CORE_NUM,
+    SYSCPU_LOAD1        = 1 << I_SYSCPU_LOAD1,
+    SYSCPU_LOAD5        = 1 << I_SYSCPU_LOAD5,
+    SYSCPU_LOAD15       = 1 << I_SYSCPU_LOAD15,
+    SYSCPU_ONLINEX      = 1 << I_SYSCPU_ONLINEX,
+    SYSCPU_USAGEX       = 1 << I_SYSCPU_USAGEX,
+} syscpu_fetch_t;
+
+// level 1
+enum _sysmem_fetch_it{
+    I_SYSMEM_TOTAL,
+    I_SYSMEM_USED,
+    I_SYSMEM_USAGE,
+    I_SYSMEM_FREE,
+    I_SYSMEM_SHARED,
+    I_SYSMEM_CACHE,
+    I_SYSMEM_SWAP_TOTAL,
+    I_SYSMEM_SWAP_USED,
+    I_SYSMEM_SWAP_USAGE,
+    I_SYSMEM_HUGEPAGES_TOTAL,
+    I_SYSMEM_HUGEPAGES_FREE,
+    I_SYSMEM_HUGEPAGES_RSVD,
+    I_SYSMEM_HUGEPAGES_SURP,
+    I_SYSMEM_HUGEPAGES_USAGE,
+    I_SYSMEM_NUMAX,
+};
+
+enum _sysnuma_fetch_it{
+    I_SYSMEM_NUMAX_TOTAL,
+    I_SYSMEM_NUMAX_USED,
+    I_SYSMEM_NUMAX_USAGE,
+    I_SYSMEM_NUMAX_FREE,
+};
+
+typedef enum _sysmem_fetch_t{
+    SYSMEM_TOTAL                = 1 << I_SYSMEM_TOTAL,
+    SYSMEM_USED                 = 1 << I_SYSMEM_USED,
+    SYSMEM_USAGE                = 1 << I_SYSMEM_USAGE,
+    SYSMEM_FREE                 = 1 << I_SYSMEM_FREE,
+    SYSMEM_SHARED               = 1 << I_SYSMEM_SHARED,
+    SYSMEM_CACHE                = 1 << I_SYSMEM_CACHE,
+    SYSMEM_SWAP_TOTAL           = 1 << I_SYSMEM_SWAP_TOTAL,
+    SYSMEM_SWAP_USED            = 1 << I_SYSMEM_SWAP_USED,
+    SYSMEM_SWAP_USAGE           = 1 << I_SYSMEM_SWAP_USAGE,
+    SYSMEM_HUGEPAGES_TOTAL      = 1 << I_SYSMEM_HUGEPAGES_TOTAL,
+    SYSMEM_HUGEPAGES_FREE       = 1 << I_SYSMEM_HUGEPAGES_FREE,
+    SYSMEM_HUGEPAGES_RSVD       = 1 << I_SYSMEM_HUGEPAGES_RSVD,
+    SYSMEM_HUGEPAGES_SURP       = 1 << I_SYSMEM_HUGEPAGES_SURP,
+    SYSMEM_HUGEPAGES_USAGE      = 1 << I_SYSMEM_HUGEPAGES_USAGE,
+    SYSMEM_NUMAX                = 1 << I_SYSMEM_NUMAX,
+} sysmem_fetch_t;
+
+// level 2
+typedef enum _sysnuma_fetch_t{
+    I_SYSMEM_NUMAX_TOTAL        = 1 << I_SYSMEM_NUMAX_TOTAL,
+    I_SYSMEM_NUMAX_USED         = 1 << I_SYSMEM_NUMAX_USED,
+    I_SYSMEM_NUMAX_USAGE        = 1 << I_SYSMEM_NUMAX_USAGE,
+    I_SYSMEM_NUMAX_FREE         = 1 << I_SYSMEM_NUMAX_FREE,
+} _sysnuma_fetch_t;
+
+typedef enum _sysio_fetch_it{
+    I_SYSIO_RRQMX,
+    I_SYSIO_WRQMX,
+    I_SYSIO_RX,
+    I_SYSIO_WX,
+    I_SYSIO_RKBX,
+    I_SYSIO_WKBX,
+    I_SYSIO_AVGRG_SZX,
+    I_SYSIO_AVGQU_SZX,
+    I_SYSIO_SVCTMX,
+    I_SYSIO_UTILX,
+    I_SYSIO_AWAITX,
+} sysio_fetch_it;
+
+typedef enum _sysio_fetch_t{
+    SYSIO_RRQMX                 = 1 << I_SYSIO_RRQMX,
+    SYSIO_WRQMX                 = 1 << I_SYSIO_WRQMX,
+    SYSIO_RX                    = 1 << I_SYSIO_RX,
+    SYSIO_WX                    = 1 << I_SYSIO_WX,
+    SYSIO_RKBX                  = 1 << I_SYSIO_RKBX,
+    SYSIO_WKBX                  = 1 << I_SYSIO_WKBX,
+    SYSIO_AVGRG_SZX             = 1 << I_SYSIO_AVGRG_SZX,
+    SYSIO_AVGQU_SZX             = 1 << I_SYSIO_AVGQU_SZX,
+    SYSIO_SVCTMX                = 1 << I_SYSIO_SVCTMX,
+    SYSIO_UTILX                 = 1 << I_SYSIO_UTILX,
+    SYSIO_AWAITX                = 1 << I_SYSIO_AWAITX,
+} sysio_fetch_t;
 
 typedef struct _syscpu_load{
     int64_t             total_time;
     int64_t             idle_time;
 } syscpu_load;
 
-typedef struct _syscpu_data{
-    int32_t             socket_num;
-    int32_t             core_num;
+typedef struct _syscpu_fetch_guide{
+    // syscpu_fetch_t
+    uint32_t            mask;
+    size_t              mask_bmp_cpu_online[SYSW_CPU_BMP_SIZE];
+    size_t              mask_bmp_cpu_usage[SYSW_CPU_BMP_SIZE + 1/* for total load*/];
+    syscpu_load         list_last_load[SYSW_MAX_CPU_NUM + 1/* for total load*/];
+} syscpu_fetch_guide;
+
+typedef struct _syscpu_data_template{
+    uint32_t            socket_num;
+    uint32_t            core_num;
     float               load1;
     float               load5;
     float               load15;
+    bool                onlinex;
+    float               usagex;
 
-    // keep static size, the memset will zeros it
-    size_t              list_cpu_online_bmp[SYSW_CPU_BMP_SIZE];
+    // addition field
+    int32_t             i_cpu;
+} syscpu_data_template;
 
-    // the 1st item is total_usage, the follows are cpu0, cpu1 ...
-    float               list_cpu_usage[SYSW_MAX_CPU_NUM + 1/* for total usage*/];
-    syscpu_load         list_last_load[SYSW_MAX_CPU_NUM + 1/* for total load*/];
-} syscpu_data;
 
-typedef struct _sysnuma_data{
-    float               total;
-    float               used;
-    float               usage;
-    float               free;
-} sysnuma_data;
+typedef struct _sysmem_fetch_guide{
+    // sysmem_fetch_t
+    uint32_t            mask;
+    size_t              mask_bmp_numa_total [SYSW_MAX_CPU_NUM];
+    size_t              mask_bmp_numa_used  [SYSW_MAX_CPU_NUM];
+    size_t              mask_bmp_numa_usage [SYSW_MAX_CPU_NUM];
+    size_t              mask_bmp_numa_free  [SYSW_MAX_CPU_NUM];
+} sysmem_fetch_guide;
 
-typedef struct _sysmem_data{
-    int32_t             total_mb;
-    int32_t             used_mb;
-    int32_t             usage;              // ??????????? float ?
-    int32_t             free_mb;
-    int32_t             shared_mb;          // MB ?
-    int32_t             cache_mb;           // MB ?
-    int32_t             swap_total_mb;      // MB ?
-    int32_t             swap_free_mb;       // MB ?
-    int32_t             swap_usage;         // float
-    int32_t             huage_page_total;   // MB ?
-    int32_t             huage_page_free;
-    int32_t             huage_page_rsvd;
-    int32_t             huage_page_surp;
-    int32_t             huage_page_usage;
-    int32_t             numa_num;
-    sysnuma_data        list_numa[SYSW_MAX_NUMA_NUM];
-} sysmem_data;
+typedef struct _sysmem_data_template{
+    uint32_t            total_mb;
+    uint32_t            used_mb;
+    float               usage;                  // float ?
+    uint32_t            free_mb;
+    uint32_t            shared_mb;              // MB ?
+    uint32_t            cache_mb;               // MB ?
+    uint32_t            swap_total_mb;          // MB ?
+    uint32_t            swap_free_mb;           // MB ?
+    float               swap_usage;             // float ??
+    uint32_t            huage_page_total;       // MB ?
+    uint32_t            huage_page_free;
+    uint32_t            huage_page_rsvd;
+    uint32_t            huage_page_surp;
+    float               huage_page_usage;
 
-typedef enum _sysio_fetch_type{
-    SYSIO_RRQM          = 0x0001,
-    SYSIO_WRQM          = 0x0002,
-    SYSIO_R             = 0x0004,
-    SYSIO_W             = 0x0008,
-    SYSIO_RKB           = 0x0010,
-    SYSIO_WKB           = 0x0020,
-    SYSIO_AVGRG_SZ      = 0x0040,
-    SYSIO_AVGQU_SZ      = 0x0080,
-    SYSIO_SVCTM         = 0x0100,
-    SYSIO_UTIL          = 0x0200,
-    SYSIO_AWAIT         = 0x0400,
-} sysio_fetch_type;
+    float               numa_total;             // unit ?
+    float               numa_used;
+    float               numa_usage;
+    float               numa_free;
+
+    uint16_t            i_numa;
+    uint16_t            mask_numa;
+} sysmem_data_template;
 
 typedef struct _sysio_stat{
     // keep int64_t as the field type, 
@@ -214,16 +310,17 @@ typedef struct _sysnet_data{
 // sampling control block
 typedef struct _sys_scb{
     // use 64bit data type may not overflow for a very long time
-    uint64_t            time_interval;
     const char *        name;
+    uint32_t            time_interval;
     uint32_t            i_in_heap;
     uint16_t            i_group;
-    uint16_t            i_data;
+    size_t              i_data;
+    uint64_t            wakeup_time;
 } sys_scb;
 
 extern void syswatch_init();
-extern void syswatch_get_cpuinfo(syscpu_data * info, syscpu_fetch_type mask);
-extern void syswatch_get_meminfo(sysmem_data * info/*TODO: , sysmem_fetch_type mask*/);
+extern void syswatch_tx_cpuinfo(syscpu_fetch_guide * guide, syswatch_stream_invoke stream);
+extern void syswatch_tx_meminfo(sysmem_fetch_guide * guide, syswatch_stream_invoke stream);
 extern void syswatch_get_ioinfo(sysio_data * info/*TODO: , sysio_fetch_type mask*/);
 extern void syswatch_get_netinfo(sysnet_data * info/*TODO: , sysnet_fetch_type mask*/);
 
