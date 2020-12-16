@@ -21,5 +21,12 @@ void bitop_bmp_set(size_t * bmp, size_t index){
     bmp[i_word]  |= i_mask;
 }
 
+void bitop_bmp_reset(size_t * bmp, size_t index){
+    size_t i_word = index / sizeof(size_t);
+    size_t i_bit  = index % sizeof(size_t);
+    size_t i_mask = (size_t)1 << i_bit;
+    bmp[i_word]  &= ~i_mask;
+}
+
 // extern "C" end
 #include"cend.h"
