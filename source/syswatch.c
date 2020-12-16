@@ -354,7 +354,7 @@ static void syswatch_get_meminfo_core(
     }
 }
 
-extern void syswatch_get_meminfo(sysmem_fetch_guide * guide, syswatch_stream_invoke stream){
+extern void syswatch_tx_meminfo(sysmem_fetch_guide * guide, syswatch_stream_invoke stream){
     if (guide->mask){
         stream(& guide->mask, sizeof(guide->mask));
     }
@@ -497,6 +497,11 @@ extern void syswatch_get_meminfo(sysmem_fetch_guide * guide, syswatch_stream_inv
         }
 
         sdt.i_numa          = node_id;
+        sdt.mask_numa       = 
+            (uint16_t)(need0) << I_SYSMEM_NUMAX_TOTAL |
+            (uint16_t)(need1) << I_SYSMEM_NUMAX_USED  |
+            (uint16_t)(need2) << I_SYSMEM_NUMAX_USAGE |
+            (uint16_t)(need3) << I_SYSMEM_NUMAX_FREE;
         stream(& sdt.i_numa, sizeof(sdt.i_numa));
         stream(& sdt.mask_numa, sizeof(sdt.mask_numa));
 
