@@ -8,6 +8,7 @@
 
 typedef void (* syswatch_stream_invoke)(void * data, size_t bytes);
 typedef void (* syswatch_guide_invoke)(void * guide, size_t i);
+typedef void (* syswatch_tx_invoke)(void * guide, syswatch_stream_invoke stream);
 
 // data group
 typedef enum _sysdata_group_t{

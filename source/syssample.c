@@ -144,6 +144,7 @@ static syscpu_fetch_guide   guide_cpu;
 static sysmem_fetch_guide   guide_mem;
 static sysio_fetch_guide    guide_io;
 static sysnet_fetch_guide   guide_net;
+static uint32_t             mask_group;
 
 static void syswatch_merge_request_cpu(const sys_scb * item){
     guide_cpu.mask     |=  1 << item->i_mask;
@@ -205,16 +206,34 @@ static void syswatch_merge_request(sys_scb * item){
         [I_SYSNET] = & syswatch_merge_request_net,
     };
 
+    mask_group    |= 1 << item->i_group;
     table[item->i_group](item);
 }
 
-void syswatch_server_exchange(){
+typedef struct _tx_pack{
+    syswatch_tx_invoke  invoke;
+    void *              guide;
+} tx_pack;
+
+void syswatch_server_exchange(syswatch_stream_invoke stream){
+    typedef syswatch_tx_invoke sti;
+
+    tx_pack table[]    = {
+        [I_SYSCPU] = { .invoke = (sti)& syswatch_tx_cpuinfo, .guide = & guide_cpu },
+        [I_SYSMEM] = { .invoke = (sti)& syswatch_tx_meminfo, .guide = & guide_mem },
+        [I_SYSIO ] = { .invoke = (sti)& syswatch_tx_ioinfo , .guide = & guide_io  },
+        [I_SYSNET] = { .invoke = (sti)& syswatch_tx_netinfo, .guide = & guide_net },
+    };
+
     uint64_t  current;
+    tx_pack * tx;
     sys_scb * root;
+    size_t    i;
 
     while(true){
         root            = list_sbc_ptr[0];
         current         = root->wakeup_time;
+        mask_group      = 0; // reset
 
         // TODO:replace by ms sleep
         // sleepms(root->ms_period);
@@ -227,7 +246,15 @@ void syswatch_server_exchange(){
             syswatch_heap_push(list_sbc_ptr, list_sbc_num - 1, root/*push*/);
         }while(list_sbc_ptr[0]->wakeup_time == current);
 
-        
+        // dagram header
+        // TODO: endian, control, etc...
+        stream(& mask_group, sizeof(mask_group));
+
+        // dagram content
+        for(i = 0; i < I_SYSMAX; i++){
+            tx          = & table[i];
+            tx->invoke(tx->guide, stream);
+        }
     }
 }
 
