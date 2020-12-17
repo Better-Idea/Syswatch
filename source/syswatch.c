@@ -85,7 +85,7 @@ extern void syswatch_init(){
                 // ERR maybe
             }
 
-            find[0]->time_interval
+            find[0]->ms_period
                             = period;
         }
 
@@ -100,7 +100,7 @@ extern void syswatch_init(){
         fd_cfg              = fopen(SYSWATCH_DEFAULT_PATH_PERIOD, "w");
 
         for(i = 0; i < list_sbc_num; i++){
-            fprintf(fd_cfg, "%-30s = %d\n", list_sbc[i].name, list_sbc[i].time_interval);
+            fprintf(fd_cfg, "%-30s = %d\n", list_sbc[i].name, list_sbc[i].ms_period);
         }
 
         fclose(fd_cfg);
