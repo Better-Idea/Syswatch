@@ -504,10 +504,10 @@ extern void syswatch_tx_meminfo(sysmem_fetch_guide * guide, syswatch_stream_invo
 
         sdt.i_numa          = node_id;
         sdt.mask_numa       = 
-            (uint16_t)(need0) << I_SYSMEM_NUMAX_TOTAL |
-            (uint16_t)(need1) << I_SYSMEM_NUMAX_USED  |
-            (uint16_t)(need2) << I_SYSMEM_NUMAX_USAGE |
-            (uint16_t)(need3) << I_SYSMEM_NUMAX_FREE;
+            (uint16_t)(need0) << I_SYSMEM_NUMA_TOTALX |
+            (uint16_t)(need1) << I_SYSMEM_NUMA_USEDX  |
+            (uint16_t)(need2) << I_SYSMEM_NUMA_USAGEX |
+            (uint16_t)(need3) << I_SYSMEM_NUMA_FREEX;
         stream(& sdt.i_numa, sizeof(sdt.i_numa));
         stream(& sdt.mask_numa, sizeof(sdt.mask_numa));
 

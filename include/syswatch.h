@@ -81,6 +81,11 @@ typedef enum _sysmem_fetch_t{
     SYSMEM_NUMA_USEDX           = 1 << I_SYSMEM_NUMA_USEDX,
     SYSMEM_NUMA_USAGEX          = 1 << I_SYSMEM_NUMA_USAGEX,
     SYSMEM_NUMA_FREEX           = 1 << I_SYSMEM_NUMA_FREEX,
+    SYSMEM_NUMAX                =
+        SYSMEM_NUMA_TOTALX  |
+        SYSMEM_NUMA_USEDX   |
+        SYSMEM_NUMA_USAGEX  |
+        SYSMEM_NUMA_FREEX,
 } sysmem_fetch_t;
 
 typedef enum _sysio_fetch_it{
