@@ -8,6 +8,7 @@
 #include<unistd.h>
 
 #include"include/syswatch.h"
+#include"include/utils/bitop.h"
 
 // extern "C"
 #include"cbegin.h"
@@ -17,6 +18,27 @@ static sem_t        watcher_sem;
 static int          watcher_list[SYSW_MAX_CONN];
 static int          watcher_push_i;
 static int          watcher_pop_i;
+
+static int syswatch_cmp_sbc(const void * left, const void * right){
+    sys_scb ** l        = (sys_scb **)left;
+    sys_scb ** r        = (sys_scb **)right;
+
+    if (l[0]->wakeup_time != r[0]->wakeup_time){
+        return l[0]->wakeup_time > r[0]->wakeup_time ? 1 : -1;
+    }
+    if (l[0]->i_group != r[0]->i_group){
+        return l[0]->i_group > r[0]->i_group ? 1 : -1;
+    }
+    if (l[0]->i_mask != r[0]->i_mask){
+        return l[0]->i_mask > r[0]->i_mask ? 1 : -1;
+    }
+    if (l[0]->i_addition != r[0]->i_addition){
+        return l[0]->i_addition > r[0]->i_addition ? 1 : -1;
+    }
+
+    // equals
+    return 0;
+}
 
 static void syswatch_heap_push(sys_scb ** list, size_t length, sys_scb * value){
     size_t    i         = length;
@@ -28,7 +50,7 @@ static void syswatch_heap_push(sys_scb ** list, size_t length, sys_scb * value){
             ii          = (i - 1) >> 1
         ];
 
-        if (parent->wakeup_time < value->wakeup_time){
+        if (syswatch_cmp_sbc(& parent, & value) < 0){
             break;
         }
 
@@ -56,7 +78,7 @@ static sys_scb * syswatch_heap_pop(sys_scb ** list, size_t length, size_t index)
         left            = list[i_left];
         right           = list[i_left + 1];
 
-        if (left->wakeup_time > right->wakeup_time){
+        if (syswatch_cmp_sbc(left, right) > 0){
             select      = right;
             i_left     += 1;
         }
@@ -64,7 +86,7 @@ static sys_scb * syswatch_heap_pop(sys_scb ** list, size_t length, size_t index)
             select      = left;
         }
 
-        if (select->wakeup_time >= last->wakeup_time){
+        if (syswatch_cmp_sbc(select, last) >= 0){
             break;
         }
 
@@ -118,6 +140,74 @@ int syswatch_watcher_pop(){
     return val;
 }
 
+static syscpu_fetch_guide   guide_cpu;
+static sysmem_fetch_guide   guide_mem;
+static sysio_fetch_guide    guide_io;
+static sysnet_fetch_guide   guide_net;
+
+static void syswatch_merge_request_cpu(const sys_scb * item){
+    guide_cpu.mask     |=  1 << item->i_mask;
+
+    // non-array data
+    if (item->i_mask < B_SYSCPU_XDATA){
+        return;
+    }
+
+    size_t   i          = item->i_mask - B_SYSCPU_XDATA;
+    size_t * table[]    = {
+        [I_SYSCPU_ONLINEX - B_SYSCPU_XDATA] = guide_cpu.mask_bmp_cpu_online,
+        [I_SYSCPU_USAGEX  - B_SYSCPU_XDATA] = guide_cpu.mask_bmp_cpu_usage,
+    };
+
+    bitop_bmp_set(table[i], item->i_addition);
+}
+
+static void syswatch_merge_request_mem(const sys_scb * item){
+    guide_mem.mask     |= 1 << item->i_mask;
+
+    // non-array data
+    if (item->i_mask < B_SYSMEM_NUMA){
+        return;
+    }
+
+    size_t      i       = item->i_mask - B_SYSMEM_NUMA;
+    size_t *    table[] = {
+        [I_SYSMEM_NUMA_TOTALX - B_SYSMEM_NUMA] = guide_mem.mask_bmp_numa_total,
+        [I_SYSMEM_NUMA_USEDX  - B_SYSMEM_NUMA] = guide_mem.mask_bmp_numa_used ,
+        [I_SYSMEM_NUMA_USAGEX - B_SYSMEM_NUMA] = guide_mem.mask_bmp_numa_usage,
+        [I_SYSMEM_NUMA_FREEX  - B_SYSMEM_NUMA] = guide_mem.mask_bmp_numa_free ,
+    };
+
+    bitop_bmp_set(table[item->i_addition - B_SYSMEM_NUMA], item->i_addition);
+}
+
+static void syswatch_merge_request_io(const sys_scb * item){
+    sysio_fgi * disk    = & guide_io.disk[item->i_mask];
+    guide_io.needed     = true;
+    bitop_bmp_set(guide_io.mask_bmp_disk, item->i_mask);
+    disk->mask         |= 1 << item->i_addition;
+}
+
+static void syswatch_merge_request_net(const sys_scb * item){
+    sysnet_fgi * eth    = & guide_net.eth[item->i_mask];
+    guide_net.needed    = true;
+    bitop_bmp_set(guide_net.mask_bmp_eth, item->i_mask);
+    eth->mask          |= 1 << item->i_addition;
+}
+
+static void syswatch_merge_request(sys_scb * item){
+    typedef void (* merge)(const sys_scb *);
+
+    merge table[]  = {
+        [I_SYSCPU] = & syswatch_merge_request_cpu,
+        [I_SYSMEM] = & syswatch_merge_request_mem,
+        [I_SYSIO ] = & syswatch_merge_request_io,
+        [I_SYSNET] = & syswatch_merge_request_net,
+    };
+
+    table[item->i_group](item);
+}
+
 void syswatch_server_exchange(){
     uint64_t  current;
     sys_scb * root;
@@ -125,14 +215,19 @@ void syswatch_server_exchange(){
     while(true){
         root            = list_sbc_ptr[0];
         current         = root->wakeup_time;
-        sleep(root->time_interval);
+
+        // TODO:replace by ms sleep
+        // sleepms(root->ms_period);
 
         do{
             root        = syswatch_heap_pop(list_sbc_ptr, list_sbc_num, 0);
             root->wakeup_time
-                       += root->time_interval;
+                       += root->ms_period;
+            syswatch_merge_request(root);
             syswatch_heap_push(list_sbc_ptr, list_sbc_num - 1, root/*push*/);
         }while(list_sbc_ptr[0]->wakeup_time == current);
+
+        
     }
 }
 
@@ -153,6 +248,8 @@ void syswatch_server(){
     }
 
     bind(fd, (struct sockaddr *)& sai, sizeof(sai));
+
+    // SYSW_MAX_CONN just a suggestion for 'listen', the max connect number may not equals to this value
     listen(fd, SYSW_MAX_CONN);
 
     while(true){
