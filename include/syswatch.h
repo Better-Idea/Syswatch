@@ -10,11 +10,13 @@ typedef void (* syswatch_stream_invoke)(void * data, size_t bytes);
 typedef void (* syswatch_guide_invoke)(void * guide, size_t i);
 
 // data group
-typedef enum _sysdata_t{
+typedef enum _sysdata_group_t{
     I_SYSCPU,
     I_SYSMEM,
+    I_SYSIO,
+    I_SYSNET,
     I_SYSMAX,
-} sysdata_t;
+} sysdata_group_t;
 
 enum _syscpu_fetch_it{
     I_SYSCPU_SOCKET_NUM,
@@ -22,18 +24,19 @@ enum _syscpu_fetch_it{
     I_SYSCPU_LOAD1,
     I_SYSCPU_LOAD5,
     I_SYSCPU_LOAD15,
-    I_SYSCPU_ONLINEX,
+    B_SYSCPU_XDATA,
+    I_SYSCPU_ONLINEX            = B_SYSCPU_XDATA,
     I_SYSCPU_USAGEX,
 };
 
 typedef enum _syscpu_fetch_t{
-    SYSCPU_SOCKET_NUM   = 1 << I_SYSCPU_SOCKET_NUM,
-    SYSCPU_CORE_NUM     = 1 << I_SYSCPU_CORE_NUM,
-    SYSCPU_LOAD1        = 1 << I_SYSCPU_LOAD1,
-    SYSCPU_LOAD5        = 1 << I_SYSCPU_LOAD5,
-    SYSCPU_LOAD15       = 1 << I_SYSCPU_LOAD15,
-    SYSCPU_ONLINEX      = 1 << I_SYSCPU_ONLINEX,
-    SYSCPU_USAGEX       = 1 << I_SYSCPU_USAGEX,
+    SYSCPU_SOCKET_NUM           = 1 << I_SYSCPU_SOCKET_NUM,
+    SYSCPU_CORE_NUM             = 1 << I_SYSCPU_CORE_NUM,
+    SYSCPU_LOAD1                = 1 << I_SYSCPU_LOAD1,
+    SYSCPU_LOAD5                = 1 << I_SYSCPU_LOAD5,
+    SYSCPU_LOAD15               = 1 << I_SYSCPU_LOAD15,
+    SYSCPU_ONLINEX              = 1 << I_SYSCPU_ONLINEX,
+    SYSCPU_USAGEX               = 1 << I_SYSCPU_USAGEX,
 } syscpu_fetch_t;
 
 // level 1
@@ -52,14 +55,11 @@ enum _sysmem_fetch_it{
     I_SYSMEM_HUGEPAGES_RSVD,
     I_SYSMEM_HUGEPAGES_SURP,
     I_SYSMEM_HUGEPAGES_USAGE,
-    I_SYSMEM_NUMAX,
-};
-
-enum _sysnuma_fetch_it{
-    I_SYSMEM_NUMAX_TOTAL,
-    I_SYSMEM_NUMAX_USED,
-    I_SYSMEM_NUMAX_USAGE,
-    I_SYSMEM_NUMAX_FREE,
+    B_SYSMEM_NUMA,              // base of numa
+    I_SYSMEM_NUMA_TOTALX        = B_SYSMEM_NUMA,
+    I_SYSMEM_NUMA_USEDX,
+    I_SYSMEM_NUMA_USAGEX,
+    I_SYSMEM_NUMA_FREEX,
 };
 
 typedef enum _sysmem_fetch_t{
@@ -77,16 +77,11 @@ typedef enum _sysmem_fetch_t{
     SYSMEM_HUGEPAGES_RSVD       = 1 << I_SYSMEM_HUGEPAGES_RSVD,
     SYSMEM_HUGEPAGES_SURP       = 1 << I_SYSMEM_HUGEPAGES_SURP,
     SYSMEM_HUGEPAGES_USAGE      = 1 << I_SYSMEM_HUGEPAGES_USAGE,
-    SYSMEM_NUMAX                = 1 << I_SYSMEM_NUMAX,
+    SYSMEM_NUMA_TOTALX          = 1 << I_SYSMEM_NUMA_TOTALX,
+    SYSMEM_NUMA_USEDX           = 1 << I_SYSMEM_NUMA_USEDX,
+    SYSMEM_NUMA_USAGEX          = 1 << I_SYSMEM_NUMA_USAGEX,
+    SYSMEM_NUMA_FREEX           = 1 << I_SYSMEM_NUMA_FREEX,
 } sysmem_fetch_t;
-
-// level 2
-typedef enum _sysnuma_fetch_t{
-    I_SYSMEM_NUMAX_TOTAL        = 1 << I_SYSMEM_NUMAX_TOTAL,
-    I_SYSMEM_NUMAX_USED         = 1 << I_SYSMEM_NUMAX_USED,
-    I_SYSMEM_NUMAX_USAGE        = 1 << I_SYSMEM_NUMAX_USAGE,
-    I_SYSMEM_NUMAX_FREE         = 1 << I_SYSMEM_NUMAX_FREE,
-} _sysnuma_fetch_t;
 
 typedef enum _sysio_fetch_it{
     I_SYSIO_RRQMX,
@@ -262,7 +257,6 @@ typedef struct _sysio_statex{
     int64_t             io_ms_for_util;
 } sysio_statex;
 
-// the unit is 'second'
 typedef struct _sysio_period{
     float               s_rrqm;
     float               s_wrqm;
@@ -286,6 +280,8 @@ typedef struct _sysio_fetch_guide_item{
 } sysio_fetch_guide_item, sysio_fgi;
 
 typedef struct _sysio_fetch_guide{
+    // this field meansing:
+    // needed = bit_and(mask_bmp_disk)
     bool                needed;
     size_t              disk_num;
     size_t              mask_bmp_disk[SYSW_DISK_BMP_SIZE];
@@ -349,6 +345,8 @@ typedef struct _sysnet_fetch_guide_item{
 } sysnet_fetch_guide_item, sysnet_fgi;
 
 typedef struct _sysnet_fetch_guide{
+    // this field meansing:
+    // needed = bit_and(mask_bmp_eth)
     bool                needed;
     size_t              eth_num;
     size_t              mask_bmp_eth[SYSW_ETH_BMP_SIZE];
@@ -359,12 +357,16 @@ typedef struct _sysnet_fetch_guide{
 
 // sampling control block
 typedef struct _sys_scb{
-    // use 64bit data type may not overflow for a very long time
     const char *        name;
-    uint32_t            time_interval;
+    uint32_t            ms_period;
+
+    // 'i' prefix meanings index
+    uint32_t            i_group;
+    uint32_t            i_mask;
+    size_t              i_addition;
     uint32_t            i_in_heap;
-    uint16_t            i_group;
-    size_t              i_data;
+
+    // use 64bit data type may not overflow for a very long time
     uint64_t            wakeup_time;
 } sys_scb;
 
