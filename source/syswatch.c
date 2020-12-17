@@ -537,81 +537,152 @@ extern void syswatch_tx_meminfo(sysmem_fetch_guide * guide, syswatch_stream_invo
     #undef  SYSMEM_SCALE
 }
 
-static void syswatch_tx_ioinfo_core(
-    uint32_t                    i_master,
-    uint32_t                    i_slaver,
-    sysio_fetch_guide_item *    guide, 
-    const sysio_stat *          stat, 
-    syswatch_stream_invoke      stream){
+static void syswatch_foreach(
+    bool                * needed, 
+    size_t              * mask_bmp_dev, 
+    size_t                dev_num,
+    void                * guide,
+    syswatch_guide_invoke invoke){
 
-    typedef sysio_data_template sdt_t;
-    sdt_t          sdt                      = {};
-    sysio_statex * last                     = & guide->stat;
-    sysio_period * period                   = & guide->period;
-    uint32_t       mask;
-
-    if (guide->mask){
-        mask                                = guide->mask;
-        guide->mask                         = 0;
-        sdt.i_master                        = (uint16_t)i_master;
-        sdt.i_slaver                        = (uint16_t)i_slaver;
-        stream(& sdt.i_master, sizeof(sdt.i_master));
-        stream(& sdt.i_slaver, sizeof(sdt.i_slaver));
-        stream(& guide->mask , sizeof(guide->mask));
+    if (*needed){
+        *needed             = false;
     }
     else{
         return;
     }
 
+    size_t  i               = 0;
+
+    for(; i < dev_num; i++){
+        if (bitop_bmp_get(mask_bmp_dev, i)){
+            bitop_bmp_reset(mask_bmp_dev, i);
+            invoke(guide, i);
+        }
+    }
+    invoke(guide, (size_t)SYSDATA_END);
+}
+
+static void syswatch_tx_ioinfo_core(void * guidex, size_t i){
+    typedef sysio_fetch_guide *     sfgp;
+    typedef sysio_data_template     sdt_t;
+    typedef syswatch_stream_invoke  ssi;
+
+    char           path[128];
+    ssi            stream       = ((sfgp)guidex)->stream;
+    sdt_t          sdt          = {};
+    uint32_t       i_stat       = 0;
+    uint32_t       i_master     = 0;
+    uint32_t       i_slaver     = 0;
+    sysio_fgi    * guide        = & ((sfgp)guidex)->disk[i];
+    sysio_statex * last         = & guide->stat;
+    sysio_period * period       = & guide->period;
+    sysio_stat     stat;
+    uint32_t       mask;
+    int64_t      * io_stat;
+    FILE         * fd;
+
+    if (i == (size_t)SYSDATA_END){
+        sdt.i_master            = (uint16_t)SYSDATA_END;
+        sdt.i_slaver            = (uint16_t)SYSDATA_END;
+        stream(& sdt.i_master, sizeof(sdt.i_master));
+        stream(& sdt.i_slaver, sizeof(sdt.i_slaver));
+        return;
+    }
+
+    sprintf(path, "%s/dev", guide->path_dev);
+    fd                          = fopen(path, "r");
+
+    // ERR
+    if (fd == NULL){
+        return;
+    }
+
+    fscanf(fd, "%d:%d", & i_master, & i_slaver);
+    fclose(fd);
+
+    sprintf(path, "%s/stat", guide->path_dev);
+    fd                          = fopen(path, "r");
+
+    if (fd == NULL){
+        // ERR
+    }
+
+    io_stat                     = (int64_t *)& stat;
+
+    while(i_stat < sizeof(stat) / sizeof(int64_t)){
+        // ERR
+        if (fscanf(fd, " %lld", & io_stat[i_stat]) <= 0){
+            break;
+        }
+
+        i_stat                 += 1;
+    }
+
+    fclose(fd);
+
+    if (guide->mask){
+        mask                                = guide->mask;
+        sdt.i_master                        = (uint16_t)i_master;
+        sdt.i_slaver                        = (uint16_t)i_slaver;
+        stream(& sdt.i_master, sizeof(sdt.i_master));
+        stream(& sdt.i_slaver, sizeof(sdt.i_slaver));
+        stream(& guide->mask , sizeof(guide->mask));
+        guide->mask                         = 0;
+    }
+    else{
+        // ERR
+        return;
+    }
+
     if (mask & SYSIO_RRQMX){
         sdt.rrqm                            = 
-            (float)(stat->read_merged - last->read_merged_for_rrqm) / period->s_rrqm;
-        last->read_merged_for_rrqm          = stat->read_merged;
+            (float)(stat.read_merged - last->read_merged_for_rrqm) / period->s_rrqm;
+        last->read_merged_for_rrqm          = stat.read_merged;
         stream(& sdt.rrqm, sizeof(sdt.rrqm));
     }
     if (mask & SYSIO_WRQMX){
         sdt.wrqm                            = 
-            (float)(stat->write_merged - last->write_merged_for_wrqm) / period->s_wrqm;
-        last->write_merged_for_wrqm         = stat->write_merged;
+            (float)(stat.write_merged - last->write_merged_for_wrqm) / period->s_wrqm;
+        last->write_merged_for_wrqm         = stat.write_merged;
         stream(& sdt.wrqm, sizeof(sdt.wrqm));
     }
     if (mask & SYSIO_RX){
         sdt.r                               = 
-            (float)(stat->read_completed - last->read_completed_for_r) / period->s_r;
-        last->read_completed_for_r          = stat->read_completed;
+            (float)(stat.read_completed - last->read_completed_for_r) / period->s_r;
+        last->read_completed_for_r          = stat.read_completed;
         stream(& sdt.r, sizeof(sdt.r));
     }
     if (mask & SYSIO_WX){
         sdt.w                               = 
-            (float)(stat->write_completed - last->write_completed_for_w) / period->s_w;
-        last->write_completed_for_w         = stat->write_completed;
+            (float)(stat.write_completed - last->write_completed_for_w) / period->s_w;
+        last->write_completed_for_w         = stat.write_completed;
         stream(& sdt.w, sizeof(sdt.w));
     }
     if (mask & SYSIO_RKBX){
         sdt.rkB                             = 
-            (float)(stat->read_sectors - last->read_sectors_for_rkB) * SECTOR_BYTES / 1024/*KB*/ / period->s_rkB;
-        last->read_sectors_for_rkB          = stat->read_sectors;
+            (float)(stat.read_sectors - last->read_sectors_for_rkB) * SECTOR_BYTES / 1024/*KB*/ / period->s_rkB;
+        last->read_sectors_for_rkB          = stat.read_sectors;
         stream(& sdt.rkB, sizeof(sdt.rkB));
     }
     if (mask & SYSIO_WKBX){
         sdt.wkB                             = 
-            (float)(stat->write_sectors - last->write_sectors_for_wkB) * SECTOR_BYTES / 1024/*KB*/ / period->s_wkB;
-        last->write_sectors_for_wkB = stat->write_sectors;
+            (float)(stat.write_sectors - last->write_sectors_for_wkB) * SECTOR_BYTES / 1024/*KB*/ / period->s_wkB;
+        last->write_sectors_for_wkB = stat.write_sectors;
         stream(& sdt.wkB, sizeof(sdt.wkB));
     }
     if (mask & SYSIO_AVGRG_SZX){ // average request size
         sdt.avgrg_sz                        = 
             (float)(
-                stat->read_sectors + stat->write_sectors - 
+                stat.read_sectors + stat.write_sectors - 
                 last->read_sectors_for_avgrg_sz - last->write_sectors_for_avgrg_sz) /
             (float)(
-                stat->read_merged + stat->write_merged - 
+                stat.read_merged + stat.write_merged - 
                 last->read_merged_for_avgrg_sz - last->write_merged_for_avgrg_sz) * 
             (float)(SECTOR_BYTES) / 1024/*KB*/;
-        last->read_sectors_for_avgrg_sz     = stat->read_sectors;
-        last->write_sectors_for_avgrg_sz    = stat->write_sectors;
-        last->read_merged_for_avgrg_sz      = stat->read_merged;
-        last->write_merged_for_avgrg_sz     = stat->write_merged;
+        last->read_sectors_for_avgrg_sz     = stat.read_sectors;
+        last->write_sectors_for_avgrg_sz    = stat.write_sectors;
+        last->read_merged_for_avgrg_sz      = stat.read_merged;
+        last->write_merged_for_avgrg_sz     = stat.write_merged;
         stream(& sdt.avgrg_sz, sizeof(sdt.avgrg_sz));
     }
     if (mask & SYSIO_AVGQU_SZX){
@@ -620,170 +691,103 @@ static void syswatch_tx_ioinfo_core(
     }
     if (mask & SYSIO_SVCTMX){
         sdt.svctm                           =
-            (float)(stat->io_ms - last->io_ms_for_svctm) / 
-            (float)(stat->read_completed + stat->write_completed - 
+            (float)(stat.io_ms - last->io_ms_for_svctm) / 
+            (float)(stat.read_completed + stat.write_completed - 
                 last->read_completed_for_scvtm - last->write_completed_for_scvtm);
-        last->io_ms_for_svctm               = stat->io_ms;
-        last->read_completed_for_scvtm      = stat->read_completed;
-        last->write_completed_for_scvtm     = stat->write_completed;
+        last->io_ms_for_svctm               = stat.io_ms;
+        last->read_completed_for_scvtm      = stat.read_completed;
+        last->write_completed_for_scvtm     = stat.write_completed;
         stream(& sdt.svctm, sizeof(sdt.svctm));
     }
     if (mask & SYSIO_UTILX){
         sdt.util                            =
-            (float)(stat->io_ms - last->io_ms_for_util) / period->s_util;
-        last->io_ms_for_util                = stat->io_ms;
+            (float)(stat.io_ms - last->io_ms_for_util) / period->s_util;
+        last->io_ms_for_util                = stat.io_ms;
         stream(& sdt.util, sizeof(sdt.util));
     }
     if (mask & SYSIO_AWAITX){
         sdt.await                           =
-            (float)(stat->read_ms + stat->write_ms - last->read_ms_for_await - last->write_ms_for_await) / 
-            (float)(stat->read_completed + stat->write_completed - 
+            (float)(stat.read_ms + stat.write_ms - last->read_ms_for_await - last->write_ms_for_await) / 
+            (float)(stat.read_completed + stat.write_completed - 
                 last->read_completed_for_await - last->write_completed_for_await);
-        last->read_ms_for_await             = stat->read_ms;
-        last->write_ms_for_await            = stat->write_ms;
-        last->read_completed_for_await      = stat->read_completed;
-        last->write_completed_for_await     = stat->write_completed;
+        last->read_ms_for_await             = stat.read_ms;
+        last->write_ms_for_await            = stat.write_ms;
+        last->read_completed_for_await      = stat.read_completed;
+        last->write_completed_for_await     = stat.write_completed;
         stream(& sdt.await, sizeof(sdt.await));
     }
 }
 
-extern void syswatch_get_ioinfo(sysio_fetch_guide * guide, syswatch_stream_invoke stream){
-    if (guide->needed){
-        guide->needed       = false;
-    }
-    else{
-        return;
-    }
-
-    #define SYSIO_PATH_DEV  "/sys/class/block/"
-    char    path_dev[128]   = SYSIO_PATH_DEV;
-    char  * path_sub        = path_dev + sizeof(SYSIO_PATH_DEV) - 1/*ignore '\0'*/;
-    size_t  rest_size       = sizeof(path_dev) - sizeof(SYSIO_PATH_DEV);
-    size_t  i               = 0;
-    int32_t i_master        = 0;
-    int32_t i_slaver        = 0;
-    int32_t i_stat;
-    DIR   * dev             = opendir(SYSIO_PATH_DEV);
-    FILE  * fd;
-    sysio_stat      stat    = {};
-    int64_t       * io_stat = (int64_t *) & stat;
-    sysio_fgi     * sfgi;
-    struct dirent * sub;
-
-    if (dev == NULL){
-        // ERR
-    }
-    if (strcmp(readdir(dev)->d_name, ".") != 0){
-        // ERR
-    }
-    if (strcmp(readdir(dev)->d_name, "..") != 0){
-        // ERR
-    }
-
-    for(; NULL != (sub = readdir(dev)); i++){
-        if (bitop_bmp_get(guide->mask_bmp_disk, i) == false){
-            continue;
-        }
-        else{
-            bitop_bmp_reset(guide->mask_bmp_disk, i);
-        }
-
-        sprintf(path_sub, "%s/dev", sub->d_name);
-        fd                  = fopen(path_dev, "r");
-
-        // ERR
-        if (fd == NULL){
-            continue;
-        }
-
-        fscanf(fd, "%d:%d", & i_master, & i_slaver);
-        fclose(fd);
-
-        sprintf(path_sub, "%s/stat", sub->d_name);
-        fd                  = fopen(path_dev, "r");
-
-        if (fd == NULL){
-            // ERR
-        }
-
-        sfgi                = & guide->disk[i];
-        i_stat              = (0);
-        io_stat             = (int64_t *)& stat;
-
-        while(i_stat < sizeof(stat) / sizeof(int64_t)){
-            // ERR
-            if (fscanf(fd, " %lld", & io_stat[i_stat]) <= 0){
-                break;
-            }
-
-            i_stat         += 1;
-        }
-
-        fclose(fd);
-        syswatch_tx_ioinfo_core(i_master, i_slaver, sfgi, & stat, stream);
-    }
-
-    closedir(dev);
-
-    // end of io stat
-    typedef sysio_data_template sdt_t;
-    sdt_t          sdt      = {};
-    sdt.i_master            = (uint16_t)SYSDATA_END;
-    sdt.i_slaver            = (uint16_t)SYSDATA_END;
-    stream(& sdt.i_master, sizeof(sdt.i_master));
-    stream(& sdt.i_slaver, sizeof(sdt.i_slaver));
-    #undef  SYSIO_PATH_DEV
+extern void syswatch_tx_ioinfo(sysio_fetch_guide * guide, syswatch_stream_invoke stream){
+    guide->stream           = stream;
+    syswatch_foreach(
+        & guide->needed, 
+        guide->mask_bmp_disk, 
+        guide->disk_num, 
+        guide, 
+        & syswatch_tx_ioinfo_core
+    );
 }
 
-static int64_t syswatch_get_netinfo_fs(const char * path_fmt, const char * net_dev){
+static int64_t syswatch_get_netinfo_item(const char * path_fmt, const char * net_dev){
     int64_t value           = -1;
     char    path[128];
     FILE *  fd;
     sprintf(path, path_fmt, net_dev);
     fd                      = fopen(path, "r");
 
-    if (fd == NULL){
-        // ERR
+    if (fd != NULL){
+        fscanf(fd, "%lld", & value);
+        fclose(fd);
     }
-
-    fscanf(fd, "%lld", & value);
-    fclose(fd);
     return value;
 }
 
-static void syswatch_get_netinfo_core(const char * eth_name, sysnet_field * field, sysnet_fetch_type mask){
-    struct ifreq            req;
-    struct ethtool_cmd      eth0;
-    int                     fd;
-    int tmp[32] = {0};
-    
-    strncpy(req.ifr_name, eth_name, sizeof(req.ifr_name));
+static void syswatch_tx_netinfo_core(void * guidex, size_t i){
+    typedef sysnet_fetch_guide      *   sfgp;
+    typedef sysnet_fetch_guide_item *   sfgip;
+    typedef sysnet_data_template        sdt_t;
+    typedef syswatch_stream_invoke      ssi;
 
-    eth0.cmd                = ETHTOOL_GSET;
+    struct ifreq                    req;
+    struct ethtool_link_settings    eth0;
+    sfgip                           guide;
+    ssi                             stream;
+    sdt_t                           sdt;
+    int                             fd;
+    int                             tmp[32] = {0};
+    uint32_t                        mask;
+
+    guide                   = & ((sfgp)guidex)->eth[i];
+    stream                  = ((sfgp)guidex)->stream;
+    mask                    = guide->mask;
+
+    if (i == (size_t)SYSDATA_END){
+        sdt.i_master        = (uint16_t)SYSDATA_END;
+        sdt.i_slaver        = (uint16_t)SYSDATA_END;
+        stream(& sdt.i_master, sizeof(sdt.i_master));
+        stream(& sdt.i_slaver, sizeof(sdt.i_slaver));
+        return;
+    }
+
+    strcpy(req.ifr_name, guide->name_dev);
+    eth0.cmd                = ETHTOOL_GLINKSETTINGS;
     req.ifr_data            = & eth0;
     fd                      = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
-    if (fd == -1){
+    if (fd <= 0){
         // ERR
         return;
     }
 
-    if (ioctl(fd, SIOCETHTOOL, & req) != -1){
-        if (mask & SYSNET_DUPLEX){
-            field->duplex   = eth0.duplex;
-        }
-        if (mask & SYSNET_AUTONEG){
-            field->autoneg  = eth0.autoneg;
-        }
-        if (mask & SYSNET_SPEED){
-            field->speed    = ethtool_cmd_speed(& eth0);
-        }
+    if (ioctl(fd, SIOCETHTOOL, & req) == -1){
+        // ERR
+        close(fd);
+        return;
     }
     else{
-        // ERR
+        close(fd);
     }
-
-    close(fd);
 
     /* $ cat /proc/net/dev 
      *
@@ -800,62 +804,111 @@ static void syswatch_get_netinfo_core(const char * eth_name, sysnet_field * fiel
     #define SYSNET_PATH     "/sys/class/net/%s/"
     #define SYSNET_PATHX    "/sys/class/net/%s/statistics/"
 
-    if (mask & SYSNET_STATUS){
-        field->status       = syswatch_get_netinfo_fs(SYSNET_PATH  "carrier", eth_name) > 0;
+    if (mask){
+        sdt.i_master        = (uint16_t)guide->i_master;
+        sdt.i_slaver        = (uint16_t)guide->i_slaver;
+        stream(& sdt.i_master, sizeof(sdt.i_master));
+        stream(& sdt.i_slaver, sizeof(sdt.i_slaver));
+        stream(& guide->mask , sizeof(guide->mask));
+        guide->mask         = 0;
     }
-    if (mask & SYSNET_RXBYTES){
-        field->rx_bytes     = syswatch_get_netinfo_fs(SYSNET_PATHX "rx_bytes", eth_name);
+    else{
+        // ERR
+        return;
     }
-    if (mask & SYSNET_RX_PACKETS){
-        field->rx_packets   = syswatch_get_netinfo_fs(SYSNET_PATHX "rx_packets", eth_name);
+
+    if (mask & SYSNET_DUPLEXX){
+        sdt.duplex          = eth0.duplex;
+        stream(& sdt.duplex, sizeof(sdt.duplex));
     }
-    if (mask & SYSNET_RX_DROPPED){
-        field->rx_dropped   = syswatch_get_netinfo_fs(SYSNET_PATHX "rx_dropped", eth_name);
+    if (mask & SYSNET_AUTONEGX){
+        sdt.autoneg         = eth0.autoneg;
+        stream(& sdt.autoneg, sizeof(sdt.autoneg));
     }
-    if (mask & SYSNET_RX_DROPPED_PERCENT){
+    if (mask & SYSNET_SPEEDX){
+        sdt.speed           = ethtool_cmd_speed(& eth0);
+        stream(& sdt.speed, sizeof(sdt.speed));
+    }
+    if (mask & SYSNET_STATUSX){
+        sdt.status          = syswatch_get_netinfo_item(SYSNET_PATH  "carrier", guide->name_dev) > 0;
+        stream(& sdt.status, sizeof(sdt.status));
+    }
+    if (mask & SYSNET_RXBYTESX){
+        sdt.rx_bytes        = syswatch_get_netinfo_item(SYSNET_PATHX "rx_bytes", guide->name_dev);
+        stream(& sdt.rx_bytes, sizeof(sdt.rx_bytes));
+    }
+    if (mask & SYSNET_RX_PACKETSX){
+        sdt.rx_packets      = syswatch_get_netinfo_item(SYSNET_PATHX "rx_packets", guide->name_dev);
+        stream(& sdt.rx_packets, sizeof(sdt.rx_packets));
+    }
+    if (mask & SYSNET_RX_DROPPEDX){
+        sdt.rx_dropped      = syswatch_get_netinfo_item(SYSNET_PATHX "rx_dropped", guide->name_dev);
+        stream(& sdt.rx_dropped, sizeof(sdt.rx_dropped));
+    }
+    if (mask & SYSNET_RX_DROPPED_PERCENTX){
         // TODO=========================================================
     }
-    if (mask & SYSNET_RX_ERRS){
-        field->rx_errs      = syswatch_get_netinfo_fs(SYSNET_PATHX "rx_errors", eth_name);
+    if (mask & SYSNET_RX_ERRSX){
+        sdt.rx_errs         = syswatch_get_netinfo_item(SYSNET_PATHX "rx_errors", guide->name_dev);
+        stream(& sdt.rx_errs, sizeof(sdt.rx_errs));
     }
-    if (mask & SYSNET_RX_FIFO_ERRS){
-        field->rx_fifo_errs = syswatch_get_netinfo_fs(SYSNET_PATHX "rx_fifo_errors", eth_name);
+    if (mask & SYSNET_RX_FIFO_ERRSX){
+        sdt.rx_fifo_errs    = syswatch_get_netinfo_item(SYSNET_PATHX "rx_fifo_errors", guide->name_dev);
+        stream(& sdt.rx_fifo_errs, sizeof(sdt.rx_fifo_errs));
     }
-    if (mask & SYSNET_RX_FRAME_ERRS){
-        field->rx_frame_errs= syswatch_get_netinfo_fs(SYSNET_PATHX "rx_frame_errors", eth_name);
+    if (mask & SYSNET_RX_FRAME_ERRSX){
+        sdt.rx_frame_errs   = syswatch_get_netinfo_item(SYSNET_PATHX "rx_frame_errors", guide->name_dev);
+        stream(& sdt.rx_frame_errs, sizeof(sdt.rx_frame_errs));
     }
-    if (mask & SYSNET_RX_MCST){
-        // field->rx_mcst          = 
+    if (mask & SYSNET_RX_MCSTX){
+        // sdt.rx_mcst          = 
     }
-    if (mask & SYSNET_TX_BYTES){
-        field->tx_bytes     = syswatch_get_netinfo_fs(SYSNET_PATHX "tx_bytes", eth_name);
+    if (mask & SYSNET_TX_BYTESX){
+        sdt.tx_bytes        = syswatch_get_netinfo_item(SYSNET_PATHX "tx_bytes", guide->name_dev);
+        stream(& sdt.tx_bytes, sizeof(sdt.tx_bytes));
     }
-    if (mask & SYSNET_TX_PACKETS){
-        field->tx_packets   = syswatch_get_netinfo_fs(SYSNET_PATHX "tx_packets", eth_name);
+    if (mask & SYSNET_TX_PACKETSX){
+        sdt.tx_packets      = syswatch_get_netinfo_item(SYSNET_PATHX "tx_packets", guide->name_dev);
+        stream(& sdt.tx_packets, sizeof(sdt.tx_packets));
     }
-    if (mask & SYSNET_TX_DROPPED){
-        field->tx_dropped   = syswatch_get_netinfo_fs(SYSNET_PATHX "tx_dropped", eth_name);
+    if (mask & SYSNET_TX_DROPPEDX){
+        sdt.tx_dropped      = syswatch_get_netinfo_item(SYSNET_PATHX "tx_dropped", guide->name_dev);
+        stream(& sdt.tx_dropped, sizeof(sdt.tx_dropped));
     }
-    if (mask & SYSNET_TX_DROPPED_PERCENT){
+    if (mask & SYSNET_TX_DROPPED_PERCENTX){
         // TODO=========================================================
     }
-    if (mask & SYSNET_TX_ERRS){
-        field->tx_errs      = syswatch_get_netinfo_fs(SYSNET_PATHX "tx_errors", eth_name);
+    if (mask & SYSNET_TX_ERRSX){
+        sdt.tx_errs         = syswatch_get_netinfo_item(SYSNET_PATHX "tx_errors", guide->name_dev);
+        stream(& sdt.tx_errs, sizeof(sdt.tx_errs));
     }
-    if (mask & SYSNET_TX_FIFO_ERRS){
-        field->tx_fifo_errs = syswatch_get_netinfo_fs(SYSNET_PATHX "tx_fifo_errors", eth_name);
+    if (mask & SYSNET_TX_FIFO_ERRSX){
+        sdt.tx_fifo_errs    = syswatch_get_netinfo_item(SYSNET_PATHX "tx_fifo_errors", guide->name_dev);
+        stream(& sdt.tx_fifo_errs, sizeof(sdt.tx_fifo_errs));
     }
-    if (mask & SYSNET_TX_COLL){
-        field->tx_coll      = syswatch_get_netinfo_fs(SYSNET_PATHX "collisions", eth_name);
+    if (mask & SYSNET_TX_COLLX){
+        sdt.tx_coll         = syswatch_get_netinfo_item(SYSNET_PATHX "collisions", guide->name_dev);
+        stream(& sdt.tx_coll, sizeof(sdt.tx_coll));
     }
-    if (mask & SYSNET_TX_CARR){
-        field->tx_carr      = syswatch_get_netinfo_fs(SYSNET_PATHX "tx_carrier_errors", eth_name);
+    if (mask & SYSNET_TX_CARRX){
+        sdt.tx_carr         = syswatch_get_netinfo_item(SYSNET_PATHX "tx_carrier_errors", guide->name_dev);
+        stream(& sdt.tx_carr, sizeof(sdt.tx_carr));
     }
 
     #undef  SYSNET_PATH
     #undef  SYSNET_PATHX
 }
 
+extern void syswatch_tx_netinfo(sysnet_fetch_guide * guide, syswatch_stream_invoke stream){
+    guide->stream           = stream;
+    syswatch_foreach(
+        & guide->needed, 
+        guide->mask_bmp_eth, 
+        guide->eth_num, 
+        guide, 
+        & syswatch_tx_netinfo_core
+    );
+}
 
 // end extern "C" 
 #include"cend.h"

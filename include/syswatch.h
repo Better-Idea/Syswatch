@@ -7,6 +7,7 @@
 #include"cbegin.h"
 
 typedef void (* syswatch_stream_invoke)(void * data, size_t bytes);
+typedef void (* syswatch_guide_invoke)(void * guide, size_t i);
 
 // data group
 typedef enum _sysdata_t{
@@ -114,6 +115,52 @@ typedef enum _sysio_fetch_t{
     SYSIO_UTILX                 = 1 << I_SYSIO_UTILX,
     SYSIO_AWAITX                = 1 << I_SYSIO_AWAITX,
 } sysio_fetch_t;
+
+typedef enum _sysnet_fetch_it{
+    I_SYSNET_DUPLEXX,
+    I_SYSNET_AUTONEGX,
+    I_SYSNET_SPEEDX,
+    I_SYSNET_STATUSX,
+    I_SYSNET_RXBYTESX,
+    I_SYSNET_RX_PACKETSX,
+    I_SYSNET_RX_DROPPEDX,
+    I_SYSNET_RX_DROPPED_PERCENTX,
+    I_SYSNET_RX_ERRSX,
+    I_SYSNET_RX_FIFO_ERRSX,
+    I_SYSNET_RX_FRAME_ERRSX,
+    I_SYSNET_RX_MCSTX,
+    I_SYSNET_TX_BYTESX,
+    I_SYSNET_TX_PACKETSX,
+    I_SYSNET_TX_DROPPEDX,
+    I_SYSNET_TX_DROPPED_PERCENTX,
+    I_SYSNET_TX_ERRSX,
+    I_SYSNET_TX_FIFO_ERRSX,
+    I_SYSNET_TX_COLLX,
+    I_SYSNET_TX_CARRX,
+} sysnet_fetch_it;
+
+typedef enum _sysnet_fetch_t{
+    SYSNET_DUPLEXX              = 1 << I_SYSNET_DUPLEXX,
+    SYSNET_AUTONEGX             = 1 << I_SYSNET_AUTONEGX,
+    SYSNET_SPEEDX               = 1 << I_SYSNET_SPEEDX,
+    SYSNET_STATUSX              = 1 << I_SYSNET_STATUSX,
+    SYSNET_RXBYTESX             = 1 << I_SYSNET_RXBYTESX,
+    SYSNET_RX_PACKETSX          = 1 << I_SYSNET_RX_PACKETSX,
+    SYSNET_RX_DROPPEDX          = 1 << I_SYSNET_RX_DROPPEDX,
+    SYSNET_RX_DROPPED_PERCENTX  = 1 << I_SYSNET_RX_DROPPED_PERCENTX,
+    SYSNET_RX_ERRSX             = 1 << I_SYSNET_RX_ERRSX,
+    SYSNET_RX_FIFO_ERRSX        = 1 << I_SYSNET_RX_FIFO_ERRSX,
+    SYSNET_RX_FRAME_ERRSX       = 1 << I_SYSNET_RX_FRAME_ERRSX,
+    SYSNET_RX_MCSTX             = 1 << I_SYSNET_RX_MCSTX,
+    SYSNET_TX_BYTESX            = 1 << I_SYSNET_TX_BYTESX,
+    SYSNET_TX_PACKETSX          = 1 << I_SYSNET_TX_PACKETSX,
+    SYSNET_TX_DROPPEDX          = 1 << I_SYSNET_TX_DROPPEDX,
+    SYSNET_TX_DROPPED_PERCENTX  = 1 << I_SYSNET_TX_DROPPED_PERCENTX,
+    SYSNET_TX_ERRSX             = 1 << I_SYSNET_TX_ERRSX,
+    SYSNET_TX_FIFO_ERRSX        = 1 << I_SYSNET_TX_FIFO_ERRSX,
+    SYSNET_TX_COLLX             = 1 << I_SYSNET_TX_COLLX,
+    SYSNET_TX_CARRX             = 1 << I_SYSNET_TX_CARRX,
+} sysnet_fetch_t;
 
 typedef struct _syscpu_load{
     int64_t             total_time;
@@ -233,14 +280,18 @@ typedef struct _sysio_period{
 typedef struct _sysio_fetch_guide_item{
     // sysio_fetch_t
     uint32_t            mask;
+    const char *        path_dev;
     sysio_statex        stat;
     sysio_period        period;
 } sysio_fetch_guide_item, sysio_fgi;
 
 typedef struct _sysio_fetch_guide{
-    sysio_fgi           disk[SYSW_MAX_DISK_NUM];
-    size_t              mask_bmp_disk[SYSW_DISK_BMP_SIZE];
     bool                needed;
+    size_t              disk_num;
+    size_t              mask_bmp_disk[SYSW_DISK_BMP_SIZE];
+    sysio_fgi           disk[SYSW_MAX_DISK_NUM];
+    syswatch_stream_invoke
+                        stream;
 } sysio_fetch_guide;
 
 typedef struct _sysio_data_template{
@@ -261,30 +312,7 @@ typedef struct _sysio_data_template{
     uint16_t            i_slaver;
 } sysio_data_template;
 
-typedef enum _sysnet_fetch_type{
-    SYSNET_DUPLEX               = 0x00001,
-    SYSNET_AUTONEG              = 0x00002,
-    SYSNET_SPEED                = 0x00004,
-    SYSNET_STATUS               = 0x00008,
-    SYSNET_RXBYTES              = 0x00010,
-    SYSNET_RX_PACKETS           = 0x00020,
-    SYSNET_RX_DROPPED           = 0x00040,
-    SYSNET_RX_DROPPED_PERCENT   = 0x00080,
-    SYSNET_RX_ERRS              = 0x00100,
-    SYSNET_RX_FIFO_ERRS         = 0x00200,
-    SYSNET_RX_FRAME_ERRS        = 0x00400,
-    SYSNET_RX_MCST              = 0x00800,
-    SYSNET_TX_BYTES             = 0x01000,
-    SYSNET_TX_PACKETS           = 0x02000,
-    SYSNET_TX_DROPPED           = 0x04000,
-    SYSNET_TX_DROPPED_PERCENT   = 0x08000,
-    SYSNET_TX_ERRS              = 0x10000,
-    SYSNET_TX_FIFO_ERRS         = 0x20000,
-    SYSNET_TX_COLL              = 0x40000,
-    SYSNET_TX_CARR              = 0x80000,
-} sysnet_fetch_type;
-
-typedef struct _sysnet_field{
+typedef struct _sysnet_data_template{
     int32_t             duplex;
     bool                autoneg;
     int32_t             speed;
@@ -305,12 +333,29 @@ typedef struct _sysnet_field{
     int64_t             tx_fifo_errs;
     float               tx_coll;
     float               tx_carr;
-} sysnet_field;
 
-typedef struct _sysnet_data{
+    // addition
+    uint16_t            i_master;
+    uint16_t            i_slaver;
+} sysnet_data_template;
+
+typedef struct _sysnet_fetch_guide_item{
+    uint32_t            mask;
+    const char *        name_dev;
+
+    // addition
+    uint16_t            i_master;
+    uint16_t            i_slaver;
+} sysnet_fetch_guide_item, sysnet_fgi;
+
+typedef struct _sysnet_fetch_guide{
+    bool                needed;
     size_t              eth_num;
-    sysnet_field        eth[SYSW_MAX_ETH_NUM];
-} sysnet_data;
+    size_t              mask_bmp_eth[SYSW_ETH_BMP_SIZE];
+    sysio_fgi           eth[SYSW_ETH_BMP_SIZE];
+    syswatch_stream_invoke
+                        stream;
+} sysnet_fetch_guide;
 
 // sampling control block
 typedef struct _sys_scb{
@@ -324,10 +369,10 @@ typedef struct _sys_scb{
 } sys_scb;
 
 extern void syswatch_init();
-extern void syswatch_tx_cpuinfo (syscpu_fetch_guide * guide, syswatch_stream_invoke stream);
-extern void syswatch_tx_meminfo (sysmem_fetch_guide * guide, syswatch_stream_invoke stream);
-extern void syswatch_get_ioinfo (sysio_fetch_guide  * guide, syswatch_stream_invoke stream);
-extern void syswatch_get_netinfo(sysnet_data * info/*TODO: , sysnet_fetch_type mask*/);
+extern void syswatch_tx_cpuinfo(syscpu_fetch_guide * guide, syswatch_stream_invoke stream);
+extern void syswatch_tx_meminfo(sysmem_fetch_guide * guide, syswatch_stream_invoke stream);
+extern void syswatch_tx_ioinfo (sysio_fetch_guide  * guide, syswatch_stream_invoke stream);
+extern void syswatch_tx_netinfo(sysnet_fetch_guide * guide, syswatch_stream_invoke stream);
 
 // end extern "C" 
 #include"cend.h"
