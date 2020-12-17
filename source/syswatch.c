@@ -538,6 +538,8 @@ extern void syswatch_tx_meminfo(sysmem_fetch_guide * guide, syswatch_stream_invo
 }
 
 static void syswatch_tx_ioinfo_core(
+    uint32_t                    i_master,
+    uint32_t                    i_slaver,
     sysio_fetch_guide_item *    guide, 
     const sysio_stat *          stat, 
     syswatch_stream_invoke      stream){
@@ -551,7 +553,11 @@ static void syswatch_tx_ioinfo_core(
     if (guide->mask){
         mask                                = guide->mask;
         guide->mask                         = 0;
-        stream(& guide->mask, sizeof(guide->mask));
+        sdt.i_master                        = (uint16_t)i_master;
+        sdt.i_slaver                        = (uint16_t)i_slaver;
+        stream(& sdt.i_master, sizeof(sdt.i_master));
+        stream(& sdt.i_slaver, sizeof(sdt.i_slaver));
+        stream(& guide->mask , sizeof(guide->mask));
     }
     else{
         return;
@@ -692,7 +698,6 @@ extern void syswatch_get_ioinfo(sysio_fetch_guide * guide, syswatch_stream_invok
 
         fscanf(fd, "%d:%d", & i_master, & i_slaver);
         fclose(fd);
-        // TODO: make id
 
         sprintf(path_sub, "%s/stat", sub->d_name);
         fd                  = fopen(path_dev, "r");
@@ -715,10 +720,18 @@ extern void syswatch_get_ioinfo(sysio_fetch_guide * guide, syswatch_stream_invok
         }
 
         fclose(fd);
-        syswatch_tx_ioinfo_core(sfgi, & stat, stream);
+        syswatch_tx_ioinfo_core(i_master, i_slaver, sfgi, & stat, stream);
     }
+
     closedir(dev);
 
+    // end of io stat
+    typedef sysio_data_template sdt_t;
+    sdt_t          sdt      = {};
+    sdt.i_master            = (uint16_t)SYSDATA_END;
+    sdt.i_slaver            = (uint16_t)SYSDATA_END;
+    stream(& sdt.i_master, sizeof(sdt.i_master));
+    stream(& sdt.i_slaver, sizeof(sdt.i_slaver));
     #undef  SYSIO_PATH_DEV
 }
 

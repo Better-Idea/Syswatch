@@ -255,6 +255,10 @@ typedef struct _sysio_data_template{
     float               svctm;              // the average time(ms) spent doing I/O
     float               util;               // the average I/O usage
     float               await;              // the average I/O latency(ms)
+
+    // addition
+    uint16_t            i_master;
+    uint16_t            i_slaver;
 } sysio_data_template;
 
 typedef enum _sysnet_fetch_type{
