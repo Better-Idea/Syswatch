@@ -144,7 +144,8 @@ static syscpu_fetch_guide   guide_cpu;
 static sysmem_fetch_guide   guide_mem;
 static sysio_fetch_guide    guide_io;
 static sysnet_fetch_guide   guide_net;
-static sysfs_fetch_guide    guide_fs;
+static sysfsc_fetch_guide   guide_fsc;
+static sysfsp_fetch_guide   guide_fsp;
 static uint32_t             mask_group;
 
 static void syswatch_merge_request_cpu(const sys_scb * item){
@@ -186,28 +187,27 @@ static void syswatch_merge_request_mem(const sys_scb * item){
 static void syswatch_merge_request_io(const sys_scb * item){
     sysio_fgi * disk    = & guide_io.disk[item->i_mask];
     guide_io.needed     = true;
-    bitop_bmp_set(guide_io.mask_bmp_disk, item->i_mask);
     disk->mask         |= 1 << item->i_addition;
+    bitop_bmp_set(guide_io.mask_bmp_disk, item->i_mask);
 }
 
 static void syswatch_merge_request_net(const sys_scb * item){
     sysnet_fgi * eth    = & guide_net.eth[item->i_mask];
     guide_net.needed    = true;
-    bitop_bmp_set(guide_net.mask_bmp_eth, item->i_mask);
     eth->mask          |= 1 << item->i_addition;
+    bitop_bmp_set(guide_net.mask_bmp_eth, item->i_mask);
 }
 
-static void syswatch_merge_request_fs(const sys_scb * item){
-    if (item->i_mask == I_SYSFS_FILE_DIR_CHANGE){
-        guide_fs.needed_notify  = true;
-        bitop_bmp_set(guide_fs.mask_bmp_notify, item->i_addition);
-        return;
-    }
-    if (item->i_mask == I_SYSFS_PART_STAT){
-        guide_fs.needed_part    = true;
-        bitop_bmp_set(guide_fs.mask_bmp_disk, item->i_addition);
-        return;
-    }
+static void syswatch_merge_request_fsc(const sys_scb * item){
+    guide_fsc.needed    = true;
+    bitop_bmp_set(guide_fsc.mask_bmp_notify, item->i_mask);
+}
+
+static void syswatch_merge_request_fsp(const sys_scb * item){
+    sysfsp_fgi * disk   = & guide_fsp.disk[item->i_mask];
+    guide_fsp.needed    = true;
+    disk->mask         |= 1 << item->i_addition;
+    bitop_bmp_set(guide_fsp.mask_bmp_disk, item->i_mask);
 }
 
 static void syswatch_merge_request(sys_scb * item){
@@ -218,7 +218,8 @@ static void syswatch_merge_request(sys_scb * item){
         [I_SYSMEM] = & syswatch_merge_request_mem,
         [I_SYSIO ] = & syswatch_merge_request_io,
         [I_SYSNET] = & syswatch_merge_request_net,
-        [I_SYSFS ] = & syswatch_merge_request_fs,
+        [I_SYSFSC] = & syswatch_merge_request_fsc,
+        [I_SYSFSP] = & syswatch_merge_request_fsp,
     };
 
     mask_group    |= 1 << item->i_group;
@@ -238,7 +239,8 @@ void syswatch_server_exchange(syswatch_stream_invoke stream){
         [I_SYSMEM]      = { .invoke = (sti)& syswatch_tx_meminfo, .guide = & guide_mem },
         [I_SYSIO ]      = { .invoke = (sti)& syswatch_tx_ioinfo , .guide = & guide_io  },
         [I_SYSNET]      = { .invoke = (sti)& syswatch_tx_netinfo, .guide = & guide_net },
-        [I_SYSFS ]      = { .invoke = (sti)& syswatch_tx_netinfo, .guide = & guide_fs  },
+        [I_SYSFSC]      = { .invoke = (sti)& syswatch_tx_fscinfo, .guide = & guide_fsc },
+        [I_SYSFSP]      = { .invoke = (sti)& syswatch_tx_fspinfo, .guide = & guide_fsp },
     };
 
     uint64_t  current;

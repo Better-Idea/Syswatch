@@ -934,9 +934,9 @@ static bool sysnoti_fetch(int fd, sysnoti * meta){
     return true;
 }
 
-static void syswatch_tx_fsinfo_for_filedir_change(void * guidex, size_t i, syswatch_stream_invoke stream){
-    typedef sysfs_fetch_guide *     sfgp;
-    typedef sysfs_data_template     sdt_t;
+static void syswatch_tx_fscinfo_core(void * guidex, size_t i, syswatch_stream_invoke stream){
+    typedef sysfsc_fetch_guide *    sfgp;
+    typedef sysfsx_data_template    sdt_t;
     sdt_t   sdt;
     sfgp    guide           = (sfgp)guidex;
     sdt.wd                  = (uint32_t)i;
@@ -950,10 +950,10 @@ static void syswatch_tx_fsinfo_for_filedir_change(void * guidex, size_t i, syswa
     stream(& sdt.changed, sizeof(sdt.changed));
 }
 
-static void syswatch_tx_fsinfo_for_part(void * guidex, size_t i, syswatch_stream_invoke stream){
-    typedef sysfs_fetch_guide           * sfgp;
-    typedef sysfspart_fetch_guide_item  * sfgpi;
-    typedef sysfs_data_template           sdt_t;
+static void syswatch_tx_fspinfo_core(void * guidex, size_t i, syswatch_stream_invoke stream){
+    typedef sysfsp_fetch_guide           * sfgp;
+    typedef sysfsp_fetch_guide_item      * sfgpi;
+    typedef sysfsx_data_template           sdt_t;
     struct
     statvfs  meta;
     sdt_t    sdt;
@@ -965,65 +965,69 @@ static void syswatch_tx_fsinfo_for_part(void * guidex, size_t i, syswatch_stream
         // ERR
         return;
     }
-
+    if (i == (size_t)SYSDATA_END){
+        sdt.wd              = (uint32_t)SYSDATA_END;
+        stream(& sdt.wd, sizeof(sdt.wd));
+        return;
+    }
     if (statvfs(guide->mount_point, & meta) == -1){
         // ERR
         return;
     }
-    if (mask & SYSFSPART_RWX){
+    if (mask & SYSFS_PART_RWX){
         sdt.read_write      = (meta.f_flag & ST_RDONLY) == 0;
         stream(& sdt.read_write, sizeof(sdt.read_write));
     }
-    if (mask & SYSFSPART_INODE_TOTALX){
+    if (mask & SYSFS_PART_INODE_TOTALX){
         sdt.inode_total     = (meta.f_files);
         stream(& sdt.inode_total, sizeof(sdt.inode_total));
     }
-    if (mask & SYSFSPART_INODE_USEDX){
+    if (mask & SYSFS_PART_INODE_USEDX){
         sdt.inode_used      = (meta.f_files - meta.f_ffree);
         stream(& sdt.inode_used, sizeof(sdt.inode_used));
     }
-    if (mask & SYSFSPART_INODE_USAGEX){
+    if (mask & SYSFS_PART_INODE_USAGEX){
         sdt.inode_usage     = (1.0f * (meta.f_files - meta.f_ffree)) / meta.f_files;
         stream(& sdt.inode_usage, sizeof(sdt.inode_usage));
     }
-    if (mask & SYSFSPART_BYTES_TOTALX){
+    if (mask & SYSFS_PART_BYTES_TOTALX){
         sdt.bytes_total     = (meta.f_blocks * meta.f_bsize);
         stream(& sdt.bytes_total, sizeof(sdt.bytes_total));
     }
-    if (mask & SYSFSPART_BYTES_USEDX){
+    if (mask & SYSFS_PART_BYTES_USEDX){
         sdt.bytes_used      = (meta.f_blocks - meta.f_bfree) * meta.f_bsize;
         stream(& sdt.bytes_used, sizeof(sdt.bytes_used));
     }
-    if (mask & SYSFSPART_BYTES_USAGEX){
+    if (mask & SYSFS_PART_BYTES_USAGEX){
         sdt.bytes_usage     = (1.0f * (meta.f_blocks - meta.f_bfree) * meta.f_bsize);
         stream(& sdt.bytes_usage, sizeof(sdt.bytes_usage));
     }
 }
 
-extern void syswatch_tx_fsinfo(sysfs_fetch_guide * guide, syswatch_stream_invoke stream){
-    typedef sysfs_data_template sdt_t;
+extern void syswatch_tx_fscinfo(sysfsc_fetch_guide * guide, syswatch_stream_invoke stream){
     sysnoti     meta;
-    sdt_t       sdt;
 
     while(sysnoti_fetch(guide->fd_notify, & meta)){
         bitop_bmp_set(guide->bmp_changed, meta.wd);
     }
 
     syswatch_foreach(
-        & guide->needed_notify,
+        & guide->needed,
         guide->mask_bmp_notify, 
         guide->notify_num,
         guide,
-        & syswatch_tx_fsinfo_for_filedir_change,
+        & syswatch_tx_fscinfo_core,
         stream
     );
+}
 
+extern void syswatch_tx_fspinfo(sysfsp_fetch_guide * guide, syswatch_stream_invoke stream){
     syswatch_foreach(
-        & guide->needed_part,
+        & guide->needed,
         guide->mask_bmp_disk,
         guide->disk_num,
         guide,
-        & syswatch_tx_fsinfo_for_part,
+        & syswatch_tx_fspinfo_core,
         stream
     );
 }

@@ -31,7 +31,8 @@ typedef enum _sysdata_group_t{
     I_SYSMEM,
     I_SYSIO,
     I_SYSNET,
-    I_SYSFS,
+    I_SYSFSC,       // file system change
+    I_SYSFSP,       // file system partition
     I_SYSMAX,
 } sysdata_group_t;
 
@@ -179,30 +180,36 @@ typedef enum _sysnet_fetch_t{
     SYSNET_TX_CARRX             = 1 << I_SYSNET_TX_CARRX,
 } sysnet_fetch_t;
 
-typedef enum _sysfs_fetch_it{
+typedef enum _sysfsc_fetch_it{
     I_SYSFS_FILE_DIR_CHANGE,
-    I_SYSFS_PART_STAT,
-} sysfs_fetch_it;
+    B_SYSFS_PART,
+    I_SYSFS_PART_RWX            = B_SYSFS_PART,
+    I_SYSFS_PART_INODE_TOTALX,
+    I_SYSFS_PART_INODE_USEDX,
+    I_SYSFS_PART_INODE_USAGEX,
+    I_SYSFS_PART_BYTES_TOTALX,
+    I_SYSFS_PART_BYTES_USEDX,
+    I_SYSFS_PART_BYTES_USAGEX,
+} sysfsc_fetch_it;
 
-typedef enum _sysfspart_fetch_it{
-    I_SYSFSPART_RWX,
-    I_SYSFSPART_INODE_TOTALX,
-    I_SYSFSPART_INODE_USEDX,
-    I_SYSFSPART_INODE_USAGEX,
-    I_SYSFSPART_BYTES_TOTALX,
-    I_SYSFSPART_BYTES_USEDX,
-    I_SYSFSPART_BYTES_USAGEX,
-} sysfs_fetch_it;
-
-typedef enum _sysfspart_fetch_t{
-    SYSFSPART_RWX               = 1 << I_SYSFSPART_RWX,
-    SYSFSPART_INODE_TOTALX      = 1 << I_SYSFSPART_INODE_TOTALX,
-    SYSFSPART_INODE_USEDX       = 1 << I_SYSFSPART_INODE_USEDX,
-    SYSFSPART_INODE_USAGEX      = 1 << I_SYSFSPART_INODE_USAGEX,
-    SYSFSPART_BYTES_TOTALX      = 1 << I_SYSFSPART_BYTES_TOTALX,
-    SYSFSPART_BYTES_USEDX       = 1 << I_SYSFSPART_BYTES_USEDX,
-    SYSFSPART_BYTES_USAGEX      = 1 << I_SYSFSPART_BYTES_USAGEX,
-} sysfs_fetch_t;
+typedef enum _sysfsc_fetch_t{
+    SYSFS_FILE_DIR_CHANGE       = 1 << I_SYSFS_FILE_DIR_CHANGE,
+    SYSFS_PART_RWX              = 1 << I_SYSFS_PART_RWX,
+    SYSFS_PART_INODE_TOTALX     = 1 << I_SYSFS_PART_INODE_TOTALX,
+    SYSFS_PART_INODE_USEDX      = 1 << I_SYSFS_PART_INODE_USEDX,
+    SYSFS_PART_INODE_USAGEX     = 1 << I_SYSFS_PART_INODE_USAGEX,
+    SYSFS_PART_BYTES_TOTALX     = 1 << I_SYSFS_PART_BYTES_TOTALX,
+    SYSFS_PART_BYTES_USEDX      = 1 << I_SYSFS_PART_BYTES_USEDX,
+    SYSFS_PART_BYTES_USAGEX     = 1 << I_SYSFS_PART_BYTES_USAGEX,
+    SYSFS_PARTX                 =
+        SYSFS_PART_RWX          |
+        SYSFS_PART_INODE_TOTALX |
+        SYSFS_PART_INODE_USEDX  |
+        SYSFS_PART_INODE_USAGEX |
+        SYSFS_PART_BYTES_TOTALX |
+        SYSFS_PART_BYTES_USEDX  |
+        SYSFS_PART_BYTES_USAGEX,
+} sysfsc_fetch_t;
 
 typedef struct _syscpu_load{
     int64_t             total_time;
@@ -398,29 +405,32 @@ typedef struct _sysnet_fetch_guide{
     sysio_fgi           eth[SYSW_ETH_BMP_SIZE];
 } sysnet_fetch_guide;
 
-typedef struct _sysfspart_fetch_guide_item{
-    uint32_t            mask;
-    const char *        mount_point;
-} sysfspart_fetch_guide_item, sysfspart_fgi;
-
-typedef struct _sysfs_fetch_guide{
+typedef struct _sysfsc_fetch_guide{
     // this field meansing:
     // needed = at_least_one_bit_set @ (mask_bmp_notify)
-    bool                needed_notify;
+    bool                needed;
+    size_t              notify_num;
+    size_t   *          bmp_changed;        // dynamic alloced bmp
+    size_t   *          mask_bmp_notify;    // dynamic alloced bmp
+    int                 fd_notify;
+} sysfsc_fetch_guide;
 
+typedef struct _sysfsp_fetch_guide_item{
+    uint32_t            mask;
+    const char *        mount_point;
+} sysfsp_fetch_guide_item, sysfsp_fgi;
+
+typedef struct _sysfsp_fetch_guide{
     // this field meansing:
     // needed = at_least_one_bit_set @ (mask_bmp_disk)
-    bool                needed_part;
-    size_t              notify_num;
+    bool                needed;
     size_t              disk_num;
     size_t              mask_bmp_disk[SYSW_DISK_BMP_SIZE];
-    sysfspart_fgi       disk[SYSW_DISK_BMP_SIZE];
-    size_t   *          mask_bmp_notify;    // dynamic alloced bmp
-    size_t   *          bmp_changed;        // dynamic alloced bmp
-    int                 fd_notify;
-} sysfs_fetch_guide;
+    sysfsp_fgi          disk[SYSW_DISK_BMP_SIZE];
+} sysfsp_fetch_guide;
 
-typedef struct _sysfs_data_template{
+// combine sysfsc and sysfsp data template
+typedef struct _sysfsx_data_template{
     bool                changed;
     bool                read_write;
     uint32_t            inode_total;
@@ -432,14 +442,15 @@ typedef struct _sysfs_data_template{
 
     // addition
     uint32_t            wd;
-} sysfs_data_template;
+} sysfsx_data_template;
 
 extern void syswatch_init();
 extern void syswatch_tx_cpuinfo(syscpu_fetch_guide * guide, syswatch_stream_invoke stream);
 extern void syswatch_tx_meminfo(sysmem_fetch_guide * guide, syswatch_stream_invoke stream);
 extern void syswatch_tx_ioinfo (sysio_fetch_guide  * guide, syswatch_stream_invoke stream);
 extern void syswatch_tx_netinfo(sysnet_fetch_guide * guide, syswatch_stream_invoke stream);
-extern void syswatch_tx_fsinfo (sysfs_fetch_guide  * guide, syswatch_stream_invoke stream);
+extern void syswatch_tx_fscinfo(sysfsc_fetch_guide * guide, syswatch_stream_invoke stream);
+extern void syswatch_tx_fspinfo(sysfsp_fetch_guide * guide, syswatch_stream_invoke stream);
 
 // end extern "C" 
 #include"cend.h"
