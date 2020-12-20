@@ -7,8 +7,23 @@
 #include"cbegin.h"
 
 typedef void (* syswatch_stream_invoke)(void * data, size_t bytes);
-typedef void (* syswatch_guide_invoke)(void * guide, size_t i);
+typedef void (* syswatch_guide_invoke)(void * guide, size_t i, syswatch_stream_invoke stream);
 typedef void (* syswatch_tx_invoke)(void * guide, syswatch_stream_invoke stream);
+
+// sampling control block
+typedef struct _sys_scb{
+    const char *        name;
+    uint32_t            ms_period;
+
+    // 'i' prefix meanings index
+    uint32_t            i_group;
+    uint32_t            i_mask;
+    uint32_t            i_addition;
+    uint32_t            i_in_heap;
+
+    // use 64bit data type may not overflow for a very long time
+    uint64_t            wakeup_time;
+} sys_scb;
 
 // data group
 typedef enum _sysdata_group_t{
@@ -16,6 +31,7 @@ typedef enum _sysdata_group_t{
     I_SYSMEM,
     I_SYSIO,
     I_SYSNET,
+    I_SYSFS,
     I_SYSMAX,
 } sysdata_group_t;
 
@@ -25,7 +41,7 @@ enum _syscpu_fetch_it{
     I_SYSCPU_LOAD1,
     I_SYSCPU_LOAD5,
     I_SYSCPU_LOAD15,
-    B_SYSCPU_XDATA,
+    B_SYSCPU_XDATA,             // 'b' prefix meanings base
     I_SYSCPU_ONLINEX            = B_SYSCPU_XDATA,
     I_SYSCPU_USAGEX,
 };
@@ -163,6 +179,31 @@ typedef enum _sysnet_fetch_t{
     SYSNET_TX_CARRX             = 1 << I_SYSNET_TX_CARRX,
 } sysnet_fetch_t;
 
+typedef enum _sysfs_fetch_it{
+    I_SYSFS_FILE_DIR_CHANGE,
+    I_SYSFS_PART_STAT,
+} sysfs_fetch_it;
+
+typedef enum _sysfspart_fetch_it{
+    I_SYSFSPART_RWX,
+    I_SYSFSPART_INODE_TOTALX,
+    I_SYSFSPART_INODE_USEDX,
+    I_SYSFSPART_INODE_USAGEX,
+    I_SYSFSPART_BYTES_TOTALX,
+    I_SYSFSPART_BYTES_USEDX,
+    I_SYSFSPART_BYTES_USAGEX,
+} sysfs_fetch_it;
+
+typedef enum _sysfspart_fetch_t{
+    SYSFSPART_RWX               = 1 << I_SYSFSPART_RWX,
+    SYSFSPART_INODE_TOTALX      = 1 << I_SYSFSPART_INODE_TOTALX,
+    SYSFSPART_INODE_USEDX       = 1 << I_SYSFSPART_INODE_USEDX,
+    SYSFSPART_INODE_USAGEX      = 1 << I_SYSFSPART_INODE_USAGEX,
+    SYSFSPART_BYTES_TOTALX      = 1 << I_SYSFSPART_BYTES_TOTALX,
+    SYSFSPART_BYTES_USEDX       = 1 << I_SYSFSPART_BYTES_USEDX,
+    SYSFSPART_BYTES_USAGEX      = 1 << I_SYSFSPART_BYTES_USAGEX,
+} sysfs_fetch_t;
+
 typedef struct _syscpu_load{
     int64_t             total_time;
     int64_t             idle_time;
@@ -287,13 +328,11 @@ typedef struct _sysio_fetch_guide_item{
 
 typedef struct _sysio_fetch_guide{
     // this field meansing:
-    // needed = bit_and(mask_bmp_disk)
+    // needed = at_least_one_bit_set @ (mask_bmp_disk)
     bool                needed;
     size_t              disk_num;
     size_t              mask_bmp_disk[SYSW_DISK_BMP_SIZE];
     sysio_fgi           disk[SYSW_MAX_DISK_NUM];
-    syswatch_stream_invoke
-                        stream;
 } sysio_fetch_guide;
 
 typedef struct _sysio_data_template{
@@ -352,35 +391,55 @@ typedef struct _sysnet_fetch_guide_item{
 
 typedef struct _sysnet_fetch_guide{
     // this field meansing:
-    // needed = bit_and(mask_bmp_eth)
+    // needed = at_least_one_bit_set @ (mask_bmp_eth)
     bool                needed;
     size_t              eth_num;
     size_t              mask_bmp_eth[SYSW_ETH_BMP_SIZE];
     sysio_fgi           eth[SYSW_ETH_BMP_SIZE];
-    syswatch_stream_invoke
-                        stream;
 } sysnet_fetch_guide;
 
-// sampling control block
-typedef struct _sys_scb{
-    const char *        name;
-    uint32_t            ms_period;
+typedef struct _sysfspart_fetch_guide_item{
+    uint32_t            mask;
+    const char *        mount_point;
+} sysfspart_fetch_guide_item, sysfspart_fgi;
 
-    // 'i' prefix meanings index
-    uint32_t            i_group;
-    uint32_t            i_mask;
-    size_t              i_addition;
-    uint32_t            i_in_heap;
+typedef struct _sysfs_fetch_guide{
+    // this field meansing:
+    // needed = at_least_one_bit_set @ (mask_bmp_notify)
+    bool                needed_notify;
 
-    // use 64bit data type may not overflow for a very long time
-    uint64_t            wakeup_time;
-} sys_scb;
+    // this field meansing:
+    // needed = at_least_one_bit_set @ (mask_bmp_disk)
+    bool                needed_part;
+    size_t              notify_num;
+    size_t              disk_num;
+    size_t              mask_bmp_disk[SYSW_DISK_BMP_SIZE];
+    sysfspart_fgi       disk[SYSW_DISK_BMP_SIZE];
+    size_t   *          mask_bmp_notify;    // dynamic alloced bmp
+    size_t   *          bmp_changed;        // dynamic alloced bmp
+    int                 fd_notify;
+} sysfs_fetch_guide;
+
+typedef struct _sysfs_data_template{
+    bool                changed;
+    bool                read_write;
+    uint32_t            inode_total;
+    uint32_t            inode_used;
+    float               inode_usage;
+    uint64_t            bytes_total;
+    uint64_t            bytes_used;
+    float               bytes_usage;
+
+    // addition
+    uint32_t            wd;
+} sysfs_data_template;
 
 extern void syswatch_init();
 extern void syswatch_tx_cpuinfo(syscpu_fetch_guide * guide, syswatch_stream_invoke stream);
 extern void syswatch_tx_meminfo(sysmem_fetch_guide * guide, syswatch_stream_invoke stream);
 extern void syswatch_tx_ioinfo (sysio_fetch_guide  * guide, syswatch_stream_invoke stream);
 extern void syswatch_tx_netinfo(sysnet_fetch_guide * guide, syswatch_stream_invoke stream);
+extern void syswatch_tx_fsinfo (sysfs_fetch_guide  * guide, syswatch_stream_invoke stream);
 
 // end extern "C" 
 #include"cend.h"

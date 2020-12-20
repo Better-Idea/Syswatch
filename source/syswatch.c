@@ -8,8 +8,9 @@
 #include<stdint.h>
 #include<stdio.h>
 #include<stdlib.h>
-#include<sys/socket.h>
 #include<sys/ioctl.h>
+#include<sys/socket.h>
+#include<sys/statvfs.h>
 #include<string.h>
 #include<unistd.h>
 
@@ -32,8 +33,8 @@ enum{
 };
 
 static int syswatch_cmp_for_sbc(const void * left, const void * right){
-    const sys_scb ** l = (const sys_scb **)left;
-    const sys_scb ** r = (const sys_scb **)right;
+    const sys_scb ** l      = (const sys_scb **)left;
+    const sys_scb ** r      = (const sys_scb **)right;
     return strcmp(l[0]->name, r[0]->name);
 }
 
@@ -253,8 +254,8 @@ extern void syswatch_tx_cpuinfo(syscpu_fetch_guide * guide, syswatch_stream_invo
         }
 
         for(sdt.i_cpu = 0; sdt.i_cpu < sizeof(guide->mask_bmp_cpu_online) * 8; sdt.i_cpu++){
-            if (bitop_bmp_get(guide->mask_bmp_cpu_online, sdt.i_cpu)){
-                bitop_bmp_get(cpu_online, sdt.i_cpu);
+            if (bitop_bmp_test_and_reset(guide->mask_bmp_cpu_online, sdt.i_cpu)){
+                sdt.onlinex = bitop_bmp_get(cpu_online, sdt.i_cpu);
                 stream(& sdt.i_cpu, sizeof(sdt.i_cpu));
                 stream(& sdt.onlinex, sizeof(sdt.onlinex));
             }
@@ -538,11 +539,12 @@ extern void syswatch_tx_meminfo(sysmem_fetch_guide * guide, syswatch_stream_invo
 }
 
 static void syswatch_foreach(
-    bool                * needed, 
-    size_t              * mask_bmp_dev, 
-    size_t                dev_num,
-    void                * guide,
-    syswatch_guide_invoke invoke){
+    bool                *  needed, 
+    size_t              *  mask_bmp_dev, 
+    size_t                 dev_num,
+    void                *  guide,
+    syswatch_guide_invoke  invoke,
+    syswatch_stream_invoke stream){
 
     if (*needed){
         *needed             = false;
@@ -554,21 +556,18 @@ static void syswatch_foreach(
     size_t  i               = 0;
 
     for(; i < dev_num; i++){
-        if (bitop_bmp_get(mask_bmp_dev, i)){
-            bitop_bmp_reset(mask_bmp_dev, i);
-            invoke(guide, i);
+        if (bitop_bmp_test_and_reset(mask_bmp_dev, i)){
+            invoke(guide, i, stream);
         }
     }
-    invoke(guide, (size_t)SYSDATA_END);
+    invoke(guide, (size_t)SYSDATA_END, stream);
 }
 
-static void syswatch_tx_ioinfo_core(void * guidex, size_t i){
+static void syswatch_tx_ioinfo_core(void * guidex, size_t i, syswatch_stream_invoke stream){
     typedef sysio_fetch_guide *     sfgp;
     typedef sysio_data_template     sdt_t;
-    typedef syswatch_stream_invoke  ssi;
 
     char           path[128];
-    ssi            stream       = ((sfgp)guidex)->stream;
     sdt_t          sdt          = {};
     uint32_t       i_stat       = 0;
     uint32_t       i_master     = 0;
@@ -719,13 +718,13 @@ static void syswatch_tx_ioinfo_core(void * guidex, size_t i){
 }
 
 extern void syswatch_tx_ioinfo(sysio_fetch_guide * guide, syswatch_stream_invoke stream){
-    guide->stream           = stream;
     syswatch_foreach(
         & guide->needed, 
         guide->mask_bmp_disk, 
         guide->disk_num, 
         guide, 
-        & syswatch_tx_ioinfo_core
+        & syswatch_tx_ioinfo_core,
+        stream
     );
 }
 
@@ -743,23 +742,20 @@ static int64_t syswatch_get_netinfo_item(const char * path_fmt, const char * net
     return value;
 }
 
-static void syswatch_tx_netinfo_core(void * guidex, size_t i){
+static void syswatch_tx_netinfo_core(void * guidex, size_t i, syswatch_stream_invoke stream){
     typedef sysnet_fetch_guide      *   sfgp;
     typedef sysnet_fetch_guide_item *   sfgip;
     typedef sysnet_data_template        sdt_t;
-    typedef syswatch_stream_invoke      ssi;
 
     struct ifreq                    req;
     struct ethtool_link_settings    eth0;
     sfgip                           guide;
-    ssi                             stream;
     sdt_t                           sdt;
     int                             fd;
     int                             tmp[32] = {0};
     uint32_t                        mask;
 
     guide                   = & ((sfgp)guidex)->eth[i];
-    stream                  = ((sfgp)guidex)->stream;
     mask                    = guide->mask;
 
     if (i == (size_t)SYSDATA_END){
@@ -900,13 +896,135 @@ static void syswatch_tx_netinfo_core(void * guidex, size_t i){
 }
 
 extern void syswatch_tx_netinfo(sysnet_fetch_guide * guide, syswatch_stream_invoke stream){
-    guide->stream           = stream;
     syswatch_foreach(
         & guide->needed, 
         guide->mask_bmp_eth, 
         guide->eth_num, 
         guide, 
-        & syswatch_tx_netinfo_core
+        & syswatch_tx_netinfo_core,
+        stream
+    );
+}
+
+typedef struct _sysnoti{
+    int      wd;        /* Watch descriptor.  */
+    uint32_t mask;      /* Watch mask.  */
+    uint32_t cookie;    /* Cookie to synchronize two events.  */
+    uint32_t len;       /* Length (including NULs) of name.  */
+} sysnoti;
+
+static bool sysnoti_fetch(int fd, sysnoti * meta){
+    char        skip[128];
+    meta->wd    = -1;
+    meta->len   = 0;
+
+    // no block
+    if (read(fd, meta, sizeof(*meta)) <= 0){
+        return false;
+    }
+
+    // skip the 'name'
+    for(ssize_t r; meta->len != 0; meta->len -= r){
+        r = read(fd, skip, sizeof(skip));
+
+        if (r <= 0){
+            break;
+        }
+    }
+    return true;
+}
+
+static void syswatch_tx_fsinfo_for_filedir_change(void * guidex, size_t i, syswatch_stream_invoke stream){
+    typedef sysfs_fetch_guide *     sfgp;
+    typedef sysfs_data_template     sdt_t;
+    sdt_t   sdt;
+    sfgp    guide           = (sfgp)guidex;
+    sdt.wd                  = (uint32_t)i;
+    stream(& sdt.wd, sizeof(sdt.wd));
+
+    if (i == (size_t)SYSDATA_END){
+        return;
+    }
+
+    sdt.changed             = bitop_bmp_test_and_reset(guide->bmp_changed, sdt.wd);
+    stream(& sdt.changed, sizeof(sdt.changed));
+}
+
+static void syswatch_tx_fsinfo_for_part(void * guidex, size_t i, syswatch_stream_invoke stream){
+    typedef sysfs_fetch_guide           * sfgp;
+    typedef sysfspart_fetch_guide_item  * sfgpi;
+    typedef sysfs_data_template           sdt_t;
+    struct
+    statvfs  meta;
+    sdt_t    sdt;
+    sfgpi    guide          = & ((sfgp)guidex)->disk[i];
+    uint32_t mask           = guide->mask;
+    guide->mask             = 0; // reset
+    
+    if (mask == 0){
+        // ERR
+        return;
+    }
+
+    if (statvfs(guide->mount_point, & meta) == -1){
+        // ERR
+        return;
+    }
+    if (mask & SYSFSPART_RWX){
+        sdt.read_write      = (meta.f_flag & ST_RDONLY) == 0;
+        stream(& sdt.read_write, sizeof(sdt.read_write));
+    }
+    if (mask & SYSFSPART_INODE_TOTALX){
+        sdt.inode_total     = (meta.f_files);
+        stream(& sdt.inode_total, sizeof(sdt.inode_total));
+    }
+    if (mask & SYSFSPART_INODE_USEDX){
+        sdt.inode_used      = (meta.f_files - meta.f_ffree);
+        stream(& sdt.inode_used, sizeof(sdt.inode_used));
+    }
+    if (mask & SYSFSPART_INODE_USAGEX){
+        sdt.inode_usage     = (1.0f * (meta.f_files - meta.f_ffree)) / meta.f_files;
+        stream(& sdt.inode_usage, sizeof(sdt.inode_usage));
+    }
+    if (mask & SYSFSPART_BYTES_TOTALX){
+        sdt.bytes_total     = (meta.f_blocks * meta.f_bsize);
+        stream(& sdt.bytes_total, sizeof(sdt.bytes_total));
+    }
+    if (mask & SYSFSPART_BYTES_USEDX){
+        sdt.bytes_used      = (meta.f_blocks - meta.f_bfree) * meta.f_bsize;
+        stream(& sdt.bytes_used, sizeof(sdt.bytes_used));
+    }
+    if (mask & SYSFSPART_BYTES_USAGEX){
+        sdt.bytes_usage     = (1.0f * (meta.f_blocks - meta.f_bfree) * meta.f_bsize);
+        stream(& sdt.bytes_usage, sizeof(sdt.bytes_usage));
+    }
+}
+
+extern void syswatch_tx_fsinfo(sysfs_fetch_guide * guide, syswatch_stream_invoke stream){
+    typedef sysfs_data_template sdt_t;
+    sysnoti     meta;
+    sdt_t       sdt;
+
+    while(sysnoti_fetch(guide->fd_notify, & meta)){
+        bitop_bmp_set(guide->bmp_changed, meta.wd);
+    }
+
+    syswatch_foreach(
+        & guide->needed_notify,
+        guide->mask_bmp_notify, 
+        guide->notify_num,
+        guide,
+        & syswatch_tx_fsinfo_for_filedir_change,
+        stream
+    );
+
+    syswatch_foreach(
+        & guide->needed_part,
+        guide->mask_bmp_disk,
+        guide->disk_num,
+        guide,
+        & syswatch_tx_fsinfo_for_part,
+        stream
     );
 }
 
