@@ -144,6 +144,7 @@ static syscpu_fetch_guide   guide_cpu;
 static sysmem_fetch_guide   guide_mem;
 static sysio_fetch_guide    guide_io;
 static sysnet_fetch_guide   guide_net;
+static sysfs_fetch_guide    guide_fs;
 static uint32_t             mask_group;
 
 static void syswatch_merge_request_cpu(const sys_scb * item){
@@ -196,6 +197,19 @@ static void syswatch_merge_request_net(const sys_scb * item){
     eth->mask          |= 1 << item->i_addition;
 }
 
+static void syswatch_merge_request_fs(const sys_scb * item){
+    if (item->i_mask == I_SYSFS_FILE_DIR_CHANGE){
+        guide_fs.needed_notify  = true;
+        bitop_bmp_set(guide_fs.mask_bmp_notify, item->i_addition);
+        return;
+    }
+    if (item->i_mask == I_SYSFS_PART_STAT){
+        guide_fs.needed_part    = true;
+        bitop_bmp_set(guide_fs.mask_bmp_disk, item->i_addition);
+        return;
+    }
+}
+
 static void syswatch_merge_request(sys_scb * item){
     typedef void (* merge)(const sys_scb *);
 
@@ -204,6 +218,7 @@ static void syswatch_merge_request(sys_scb * item){
         [I_SYSMEM] = & syswatch_merge_request_mem,
         [I_SYSIO ] = & syswatch_merge_request_io,
         [I_SYSNET] = & syswatch_merge_request_net,
+        [I_SYSFS ] = & syswatch_merge_request_fs,
     };
 
     mask_group    |= 1 << item->i_group;
@@ -218,11 +233,12 @@ typedef struct _tx_pack{
 void syswatch_server_exchange(syswatch_stream_invoke stream){
     typedef syswatch_tx_invoke sti;
 
-    tx_pack table[]    = {
-        [I_SYSCPU] = { .invoke = (sti)& syswatch_tx_cpuinfo, .guide = & guide_cpu },
-        [I_SYSMEM] = { .invoke = (sti)& syswatch_tx_meminfo, .guide = & guide_mem },
-        [I_SYSIO ] = { .invoke = (sti)& syswatch_tx_ioinfo , .guide = & guide_io  },
-        [I_SYSNET] = { .invoke = (sti)& syswatch_tx_netinfo, .guide = & guide_net },
+    tx_pack   table[]   = {
+        [I_SYSCPU]      = { .invoke = (sti)& syswatch_tx_cpuinfo, .guide = & guide_cpu },
+        [I_SYSMEM]      = { .invoke = (sti)& syswatch_tx_meminfo, .guide = & guide_mem },
+        [I_SYSIO ]      = { .invoke = (sti)& syswatch_tx_ioinfo , .guide = & guide_io  },
+        [I_SYSNET]      = { .invoke = (sti)& syswatch_tx_netinfo, .guide = & guide_net },
+        [I_SYSFS ]      = { .invoke = (sti)& syswatch_tx_netinfo, .guide = & guide_fs  },
     };
 
     uint64_t  current;
