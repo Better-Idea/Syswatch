@@ -957,22 +957,25 @@ static void syswatch_tx_fspinfo_core(void * guidex, size_t i, syswatch_stream_in
     struct
     statvfs  meta;
     sdt_t    sdt;
-    sfgpi    guide          = & ((sfgp)guidex)->disk[i];
-    uint32_t mask           = guide->mask;
-    guide->mask             = 0; // reset
-    
-    if (mask == 0){
-        // ERR
+    sfgpi    guide          = (& ((sfgp)guidex)->disk[i]);
+    uint32_t mask           = (guide->mask);
+    sdt.wd                  = (uint32_t)i;
+    stream(& sdt.wd, sizeof(sdt.wd));
+
+    if (i == (size_t)SYSDATA_END){
         return;
     }
-    if (i == (size_t)SYSDATA_END){
-        sdt.wd              = (uint32_t)SYSDATA_END;
-        stream(& sdt.wd, sizeof(sdt.wd));
+    if (mask == 0){
+        // ERR
         return;
     }
     if (statvfs(guide->mount_point, & meta) == -1){
         // ERR
         return;
+    }
+    else{
+        stream(& guide->mask, sizeof(guide->mask));
+        guide->mask         = 0; // reset
     }
     if (mask & SYSFS_PART_RWX){
         sdt.read_write      = (meta.f_flag & ST_RDONLY) == 0;
