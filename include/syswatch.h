@@ -405,6 +405,18 @@ typedef struct _sysnet_fetch_guide{
     sysio_fgi           eth[SYSW_ETH_BMP_SIZE];
 } sysnet_fetch_guide;
 
+typedef struct _syspro_fetch_guide{
+
+} syspro_fetch_guide;
+
+typedef struct _syspro_data_template{
+    uint32_t            max_proc_num;
+    float               usage_proc;
+    uint32_t            zombie_num;
+    uint32_t            fd_used;
+    float               fd_usage;
+} syspro_data_template;
+
 typedef struct _sysfsc_fetch_guide{
     // this field meansing:
     // needed = at_least_one_bit_set @ (mask_bmp_notify)
@@ -449,6 +461,8 @@ extern void syswatch_tx_cpuinfo(syscpu_fetch_guide * guide, syswatch_stream_invo
 extern void syswatch_tx_meminfo(sysmem_fetch_guide * guide, syswatch_stream_invoke stream);
 extern void syswatch_tx_ioinfo (sysio_fetch_guide  * guide, syswatch_stream_invoke stream);
 extern void syswatch_tx_netinfo(sysnet_fetch_guide * guide, syswatch_stream_invoke stream);
+// TODO:
+extern void syswatch_tx_proinfo();
 extern void syswatch_tx_fscinfo(sysfsc_fetch_guide * guide, syswatch_stream_invoke stream);
 extern void syswatch_tx_fspinfo(sysfsp_fetch_guide * guide, syswatch_stream_invoke stream);
 

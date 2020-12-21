@@ -1,3 +1,4 @@
+#include<ctype.h>
 #include<dirent.h>
 #include<fcntl.h>
 #include<linux/ethtool.h>
@@ -10,10 +11,10 @@
 #include<stdlib.h>
 #include<sys/ioctl.h>
 #include<sys/socket.h>
+#include<sys/resource.h>
 #include<sys/statvfs.h>
 #include<string.h>
 #include<unistd.h>
-
 #include"include/sysconfig.h"
 #include"include/syswatch.h"
 #include"include/utils/bitop.h"
@@ -893,6 +894,139 @@ static void syswatch_tx_netinfo_core(void * guidex, size_t i, syswatch_stream_in
 
     #undef  SYSNET_PATH
     #undef  SYSNET_PATHX
+}
+
+typedef enum _sysprc_stat_data_it{
+    I_SYSPRC_STAT_PPID,
+    I_SYSPRC_STAT_PGRP,
+    I_SYSPRC_STAT_SESSION,
+    I_SYSPRC_STAT_TTY_NR,
+    I_SYSPRC_STAT_TPGID,
+    I_SYSPRC_STAT_FLAGS,
+    I_SYSPRC_STAT_MINFLT,
+    I_SYSPRC_STAT_CMINFLT,
+    I_SYSPRC_STAT_MAJFLT,
+    I_SYSPRC_STAT_CMAJFLT,
+    I_SYSPRC_STAT_UTIME,
+    I_SYSPRC_STAT_STIME,
+    I_SYSPRC_STAT_CUTIME,
+    I_SYSPRC_STAT_CSTIME,
+    I_SYSPRC_STAT_PRIORITY,
+    I_SYSPRC_STAT_NICE,
+    I_SYSPRC_STAT_NUM_THREADS,
+    I_SYSPRC_STAT_ITREALVALUE,
+    I_SYSPRC_STAT_STARTTIME,
+    I_SYSPRC_STAT_VSIZE,
+    I_SYSPRC_STAT_RSS,
+    I_SYSPRC_STAT_RSSLIM,
+    I_SYSPRC_STAT_STARTCODE,
+    I_SYSPRC_STAT_ENDCODE,
+    I_SYSPRC_STAT_STARTSTACK,
+    I_SYSPRC_STAT_KSTKESP,
+    I_SYSPRC_STAT_KSTKEIP,
+    I_SYSPRC_STAT_SIGNAL,
+    I_SYSPRC_STAT_BLOCKED,
+    I_SYSPRC_STAT_SIGIGNORE,
+    I_SYSPRC_STAT_SIGCATCH,
+    I_SYSPRC_STAT_WCHAN,
+    I_SYSPRC_STAT_NSWAP,
+    I_SYSPRC_STAT_CNSWAP,
+    I_SYSPRC_STAT_EXIT_SIGNAL,
+    I_SYSPRC_STAT_PROCESSOR,
+    I_SYSPRC_STAT_RT_PRIORITY,
+    I_SYSPRC_STAT_POLICY,
+    I_SYSPRC_STAT_DELAYACCT_BLKIO_TICKS,
+    I_SYSPRC_STAT_GUEST_TIME,
+    I_SYSPRC_STAT_CGUEST_TIME,
+    I_SYSPRC_STAT_START_DATA,
+    I_SYSPRC_STAT_END_DATA,
+    I_SYSPRC_STAT_START_BRK,
+    I_SYSPRC_STAT_ARG_START,
+    I_SYSPRC_STAT_ARG_END,
+    I_SYSPRC_STAT_ENV_START,
+    I_SYSPRC_STAT_ENV_END,
+    I_SYSPRC_STAT_EXIT_CODE,
+    I_SYSPRC_STAT_MAX
+} sysprc_stat_data_it;
+
+void syswatch_tx_proinfo(){
+    typedef syspro_data_template sdt_t;
+
+    struct
+    rlimit      meta_proc;
+    struct
+    rlimit      meta_fd;
+    struct
+    dirent  *   entry;
+    DIR     *   fd_proc;
+    FILE    *   fd;
+    sdt_t       sdt;
+    size_t      len;
+    size_t      i;
+    size_t      proc_num;
+    size_t      proc_z_num;
+    int         pid;
+    char        buf[256];
+    char    *   hbuf;
+    char        state;
+    int64_t     stat[I_SYSPRC_STAT_MAX] = {0};
+
+    if (NULL == (fd_proc = opendir("/proc"))){
+        return;
+    }
+    if (chdir("/proc") == -1){
+        // ERR
+        return;
+    }
+
+    getrlimit(RLIMIT_NPROC, & meta_proc);
+    getrlimit(RLIMIT_NOFILE, & meta_fd);
+    sdt.max_proc_num        = meta_proc.rlim_cur;
+    // sdt.fd_usage      = meta_fd.rlim_cur;
+
+    hbuf                = malloc(512);
+    proc_num            = 0;
+    proc_z_num          = 0;
+
+    while(NULL != (entry = readdir(fd_proc))){
+        if (isdigit(entry->d_name[0]) == false){
+            continue;
+        }
+        if (chdir(entry->d_name) == -1){
+            continue;
+        }
+        if (NULL == (fd = fopen("comm", "r"))){
+            goto back;
+        }
+
+        // fetch program name
+        fgets(buf, sizeof(buf), fd);
+        fclose(fd);
+        sprintf(hbuf, "%%d (%s)", buf/*exec name*/);
+
+        if (NULL == (fd = fopen("stat", "r"))){
+            goto back;
+        }
+
+        // skip token
+        fscanf(fd, hbuf, & pid);
+        fscanf(fd, " %c", & state);
+
+        for(i = 0; feof(fd) == false && fscanf(fd, " %lld", & stat[i]) == 1;){
+            i++;
+        }
+        fclose(fd);
+
+        proc_num       += 1;
+        proc_z_num     += state == 'Z'; // zombie
+        
+        // TODO:
+    back:
+        // back to /proc
+        chdir("..");
+    }
+
+    free(hbuf);
 }
 
 extern void syswatch_tx_netinfo(sysnet_fetch_guide * guide, syswatch_stream_invoke stream){
